@@ -1,23 +1,23 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "unet_monitor"
+experiment_name: "unet_monitor_2_with_annealing"
 
 model:
-  name: "unet"
+  name: "unet_viable"
   num_classes: 12
-  pretrained: false
+  pretrained: true
 
 training:
   batch_size: 8
-  num_epochs: 5
+  num_epochs: 100
   learning_rate: 6e-5
-  weight_decay: 0.01
+  weight_decay: 0.05
   optimizer: "adamw"
   scheduler: "polynomial"
   warmup_epochs: 10
   seed: 42
 
 loss:
-  type: "cross_entropy"
+  type: "combined"
   # class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] # Optional: uniform or calculated
   class_weights: null
   label_smoothing: 0.1

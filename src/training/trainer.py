@@ -5,6 +5,7 @@ from src.utils.logger import Logger
 import wandb
 from torchmetrics import JaccardIndex
 import numpy as np
+from src.training.losses import CombinedLoss
 
 class Trainer:
     """
@@ -29,7 +30,12 @@ class Trainer:
         if class_weights:
              class_weights = torch.tensor(class_weights).float().to(self.device)
 
-        self.criterion = nn.CrossEntropyLoss(weight=class_weights)
+        loss_type = config['loss'].get('type', 'cross_entropy')
+        if loss_type == 'combined':
+            self.criterion = CombinedLoss(weight=class_weights)
+        else:
+            self.criterion = nn.CrossEntropyLoss(weight=class_weights)
+            
         self.logger = Logger(config)
         self.global_step = 0
         
@@ -37,9 +43,12 @@ class Trainer:
         self.num_classes = config['model']['num_classes']
         self.iou_metric = JaccardIndex(task="multiclass", num_classes=self.num_classes).to(self.device)
         
-        # Watch model gradients if using wandb
-        if self.config['logging']['use_wandb']:
-            wandb.watch(self.model, log="gradients", log_freq=100)
+        # Scheduler
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, 
+            T_max=config['training']['num_epochs'], 
+            eta_min=1e-6
+        )
 
     def train_epoch(self, epoch):
         self.model.train()
@@ -47,6 +56,7 @@ class Trainer:
         
         for batch_idx, (images, masks) in enumerate(pbar):
             images, masks = images.to(self.device), masks.to(self.device)
+            # ... existing loop ...
             
             # Forward pass
             outputs = self.model(images)
@@ -70,11 +80,15 @@ class Trainer:
             if batch_idx % self.config['logging']['log_every_n_steps'] == 0:
                 self.logger.log_metrics({
                     'train_loss': loss.item(),
-                    'train_grad_norm': total_norm
+                    'train_grad_norm': total_norm,
+                    'learning_rate': self.optimizer.param_groups[0]['lr']
                 }, step=self.global_step)
             
             self.global_step += 1
             pbar.set_postfix({'loss': loss.item()})
+            
+        # Step scheduler at epoch end
+        self.scheduler.step()
 
     def validate(self, epoch):
         self.model.eval()
