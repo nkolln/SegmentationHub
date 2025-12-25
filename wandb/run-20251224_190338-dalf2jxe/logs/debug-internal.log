@@ -1,0 +1,6 @@
+{"time":"2025-12-24T19:03:40.4663199+01:00","level":"INFO","msg":"stream: starting","core version":"0.23.1"}
+{"time":"2025-12-24T19:03:41.816368+01:00","level":"INFO","msg":"stream: created new stream","id":"dalf2jxe"}
+{"time":"2025-12-24T19:03:41.8168738+01:00","level":"INFO","msg":"handler: started","stream_id":"dalf2jxe"}
+{"time":"2025-12-24T19:03:41.8186868+01:00","level":"INFO","msg":"stream: started","id":"dalf2jxe"}
+{"time":"2025-12-24T19:03:41.8186868+01:00","level":"INFO","msg":"writer: started","stream_id":"dalf2jxe"}
+{"time":"2025-12-24T19:03:41.8186868+01:00","level":"INFO","msg":"sender: started","stream_id":"dalf2jxe"}

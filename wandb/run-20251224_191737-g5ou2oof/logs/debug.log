@@ -1,0 +1,26 @@
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_setup.py:_flush():80] Current SDK version is 0.23.1
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_setup.py:_flush():80] Configure stats pid to 17828
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_setup.py:_flush():80] Loading settings from C:\Users\nickk\.config\wandb\settings
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_setup.py:_flush():80] Loading settings from C:\Users\nickk\Documents\Repo\SegmentationHub\wandb\settings
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_setup.py:_flush():80] Loading settings from environment variables
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_init.py:setup_run_log_directory():714] Logging user logs to C:\Users\nickk\Documents\Repo\SegmentationHub\wandb\run-20251224_191737-g5ou2oof\logs\debug.log
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_init.py:setup_run_log_directory():715] Logging internal logs to C:\Users\nickk\Documents\Repo\SegmentationHub\wandb\run-20251224_191737-g5ou2oof\logs\debug-internal.log
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_init.py:init():841] calling init triggers
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_init.py:init():846] wandb.init called with sweep_config: {}
+config: {'project_name': 'paintable-surface-segmentation', 'experiment_name': 'unet_baseline', 'model': {'name': 'unet', 'num_classes': 12, 'pretrained': False}, 'training': {'batch_size': 8, 'num_epochs': 100, 'learning_rate': '6e-5', 'weight_decay': 0.01, 'optimizer': 'adamw', 'scheduler': 'polynomial', 'warmup_epochs': 10, 'seed': 42}, 'loss': {'type': 'cross_entropy', 'class_weights': None, 'label_smoothing': 0.1}, 'data': {'root_dir': 'data', 'image_size': 512, 'train_split': 0.8, 'val_split': 0.1, 'test_split': 0.1, 'num_workers': 4}, 'logging': {'use_wandb': True, 'log_every_n_steps': 50, 'save_checkpoint_every_n_epochs': 5, 'output_dir': 'outputs'}, 'monitoring': {'track_gradients': True, 'gradient_log_frequency': 100, 'visualize_predictions_every_n_epochs': 5}, '_wandb': {}}
+2025-12-24 19:17:37,201 INFO    MainThread:17828 [wandb_init.py:init():889] starting backend
+2025-12-24 19:17:39,966 INFO    MainThread:17828 [wandb_init.py:init():892] sending inform_init request
+2025-12-24 19:17:40,006 INFO    MainThread:17828 [wandb_init.py:init():900] backend started and connected
+2025-12-24 19:17:40,007 INFO    MainThread:17828 [wandb_init.py:init():970] updated telemetry
+2025-12-24 19:17:40,062 INFO    MainThread:17828 [wandb_init.py:init():994] communicating run to backend with 90.0 second timeout
+2025-12-24 19:17:42,082 INFO    MainThread:17828 [wandb_init.py:init():1041] starting run threads in backend
+2025-12-24 19:17:43,247 INFO    MainThread:17828 [wandb_run.py:_console_start():2521] atexit reg
+2025-12-24 19:17:43,248 INFO    MainThread:17828 [wandb_run.py:_redirect():2369] redirect: wrap_raw
+2025-12-24 19:17:43,248 INFO    MainThread:17828 [wandb_run.py:_redirect():2438] Wrapping output streams.
+2025-12-24 19:17:43,248 INFO    MainThread:17828 [wandb_run.py:_redirect():2461] Redirects installed.
+2025-12-24 19:17:43,256 INFO    MainThread:17828 [wandb_init.py:init():1081] run started, returning control to user process
+2025-12-24 21:13:21,245 INFO    MainThread:17828 [wandb_run.py:_finish():2287] finishing run nicholask-a/paintable-surface-segmentation/g5ou2oof
+2025-12-24 21:13:21,248 INFO    MainThread:17828 [wandb_run.py:_atexit_cleanup():2486] got exitcode: 0
+2025-12-24 21:13:21,250 INFO    MainThread:17828 [wandb_run.py:_restore():2468] restore
+2025-12-24 21:13:21,250 INFO    MainThread:17828 [wandb_run.py:_restore():2474] restore done
+2025-12-24 21:13:22,284 INFO    MainThread:17828 [wandb_run.py:_footer_sync_info():3862] logging synced files

@@ -1,0 +1,42 @@
+project_name: "paintable-surface-segmentation"
+experiment_name: "unet_baseline"
+
+model:
+  name: "unet"
+  num_classes: 12
+  pretrained: false
+
+training:
+  batch_size: 8
+  num_epochs: 100
+  learning_rate: 6e-5
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "polynomial"
+  warmup_epochs: 10
+  seed: 42
+
+loss:
+  type: "cross_entropy"
+  # class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] # Optional: uniform or calculated
+  class_weights: null
+  label_smoothing: 0.1
+
+data:
+  root_dir: "data"
+  image_size: 512
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  num_workers: 4
+
+logging:
+  use_wandb: true
+  log_every_n_steps: 50
+  save_checkpoint_every_n_epochs: 5
+  output_dir: "outputs"
+
+monitoring:
+  track_gradients: true
+  gradient_log_frequency: 100
+  visualize_predictions_every_n_epochs: 5
