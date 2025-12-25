@@ -6,6 +6,7 @@ from src.data.dataset import SegmentationDataset
 from src.data.transforms import get_train_transforms, get_val_transforms
 from src.models.segformer import Segformer
 from src.models.unet_baseline import UNet
+from src.models.unet_viable import ResNetUNet
 from src.training.trainer import Trainer
 
 def main():
@@ -53,6 +54,8 @@ def main():
         model = Segformer(num_classes=config['model']['num_classes'])
     elif config['model']['name'] == 'unet':
         model = UNet(n_channels=3, n_classes=config['model']['num_classes'])
+    elif config['model']['name'] == 'unet_viable':
+        model = ResNetUNet(n_classes=config['model']['num_classes'], pretrained=config['model'].get('pretrained', True))
     else:
         raise ValueError(f"Unknown model name: {config['model']['name']}")
 
