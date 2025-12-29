@@ -6,6 +6,9 @@ import wandb
 from torchmetrics import JaccardIndex
 import numpy as np
 from src.training.losses import CombinedLoss
+from src.training.focal_loss import FocalLoss
+from torch.optim.lr_scheduler import OneCycleLR
+from torch.cuda.amp import autocast, GradScaler
 
 class Trainer:
     """
@@ -30,8 +33,15 @@ class Trainer:
         if class_weights:
              class_weights = torch.tensor(class_weights).float().to(self.device)
 
+        # Loss function - support for focal loss
         loss_type = config['loss'].get('type', 'cross_entropy')
-        if loss_type == 'combined':
+        if loss_type == 'focal':
+            self.criterion = FocalLoss(
+                alpha=config['loss'].get('focal_alpha', 0.25),
+                gamma=config['loss'].get('focal_gamma', 2.0),
+                ignore_index=255
+            )
+        elif loss_type == 'combined':
             self.criterion = CombinedLoss(weight=class_weights)
         else:
             self.criterion = nn.CrossEntropyLoss(weight=class_weights)
@@ -43,52 +53,102 @@ class Trainer:
         self.num_classes = config['model']['num_classes']
         self.iou_metric = JaccardIndex(task="multiclass", num_classes=self.num_classes).to(self.device)
         
-        # Scheduler
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, 
-            T_max=config['training']['num_epochs'], 
-            eta_min=1e-6
-        )
+        # Scheduler - OneCycleLR for better convergence
+        scheduler_type = config['training'].get('scheduler', 'cosine')
+        if scheduler_type == 'onecycle':
+            self.scheduler = OneCycleLR(
+                self.optimizer,
+                max_lr=config['training'].get('max_lr', 1e-4),
+                epochs=config['training']['num_epochs'],
+                steps_per_epoch=len(train_loader),
+                pct_start=config['training'].get('warmup_ratio', 0.3),
+                anneal_strategy='cos'
+            )
+            self.step_per_batch = True  # OneCycle steps per batch
+        else:
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, 
+                T_max=config['training']['num_epochs'], 
+                eta_min=1e-6
+            )
+            self.step_per_batch = False
+        
+        # Mixed precision training for speed
+        self.use_amp = config['training'].get('use_amp', True)
+        self.scaler = GradScaler() if self.use_amp else None
+        
+        # Early stopping
+        self.early_stopping_patience = config['training'].get('early_stopping_patience', 10)
+        self.best_val_iou = 0.0
+        self.patience_counter = 0
+        self.should_stop = False
 
     def train_epoch(self, epoch):
         self.model.train()
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch}")
         
+        # Get gradient accumulation steps from config (default to 1 if not set)
+        accumulation_steps = self.config['training'].get('gradient_accumulation_steps', 1)
+        self.optimizer.zero_grad() # Initialize gradients once
+        
         for batch_idx, (images, masks) in enumerate(pbar):
             images, masks = images.to(self.device), masks.to(self.device)
-            # ... existing loop ...
             
-            # Forward pass
-            outputs = self.model(images)
-            loss = self.criterion(outputs, masks.long())  # Ensure masks are long
+            # Forward pass with mixed precision
+            if self.use_amp:
+                with autocast():
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, masks.long())
+                    loss = loss / accumulation_steps
+                
+                # Backward pass with gradient scaling
+                self.scaler.scale(loss).backward()
+            else:
+                # Standard forward/backward
+                outputs = self.model(images)
+                loss = self.criterion(outputs, masks.long())
+                loss = loss / accumulation_steps
+                loss.backward()
             
-            # Backward pass
-            self.optimizer.zero_grad()
-            loss.backward()
+            # Perform optimization step every 'accumulation_steps'
+            if (batch_idx + 1) % accumulation_steps == 0:
+                # Calculate gradient norm (on the accumulated gradients)
+                total_norm = 0.0
+                for p in self.model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** 0.5
+                
+                # Optimizer step with mixed precision support
+                if self.use_amp:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+                
+                self.optimizer.zero_grad()
+                
+                # Step scheduler per batch if OneCycleLR
+                if self.step_per_batch:
+                    self.scheduler.step()
+                
+                # Logging (log the accumulated/actual loss, so multiply back)
+                if batch_idx % self.config['logging']['log_every_n_steps'] == 0:
+                    self.logger.log_metrics({
+                        'train_loss': loss.item() * accumulation_steps, 
+                        'train_grad_norm': total_norm,
+                        'learning_rate': self.optimizer.param_groups[0]['lr']
+                    }, step=self.global_step)
+                
+                self.global_step += 1
             
-            # Calculate gradient norm
-            total_norm = 0.0
-            for p in self.model.parameters():
-                if p.grad is not None:
-                    param_norm = p.grad.data.norm(2)
-                    total_norm += param_norm.item() ** 2
-            total_norm = total_norm ** 0.5
+            # Update pbar with current scaled loss * steps to look normal
+            pbar.set_postfix({'loss': loss.item() * accumulation_steps})
             
-            self.optimizer.step()
-            
-            # Logging
-            if batch_idx % self.config['logging']['log_every_n_steps'] == 0:
-                self.logger.log_metrics({
-                    'train_loss': loss.item(),
-                    'train_grad_norm': total_norm,
-                    'learning_rate': self.optimizer.param_groups[0]['lr']
-                }, step=self.global_step)
-            
-            self.global_step += 1
-            pbar.set_postfix({'loss': loss.item()})
-            
-        # Step scheduler at epoch end
-        self.scheduler.step()
+        # Step scheduler at epoch end only if not per-batch
+        if not self.step_per_batch:
+            self.scheduler.step()
 
     def validate(self, epoch):
         self.model.eval()
@@ -161,11 +221,31 @@ class Trainer:
 
         self.logger.log_metrics(metrics, step=self.global_step)
         print(f"Epoch {epoch} | Val Loss: {avg_val_loss:.4f} | Val IoU: {mean_iou:.4f}")
+        
+        # Early stopping check
+        if mean_iou > self.best_val_iou:
+            self.best_val_iou = mean_iou
+            self.patience_counter = 0
+            print(f"  ✓ New best IoU: {mean_iou:.4f}")
+            # TODO: Save best checkpoint here
+        else:
+            self.patience_counter += 1
+            print(f"  No improvement for {self.patience_counter} epochs")
+            if self.patience_counter >= self.early_stopping_patience:
+                print(f"\n⚠ Early stopping triggered after {epoch + 1} epochs")
+                self.should_stop = True
 
     def train(self):
         for epoch in range(self.config['training']['num_epochs']):
             self.train_epoch(epoch)
             self.validate(epoch)
+            
+            # Check early stopping
+            if self.should_stop:
+                print(f"Training stopped early at epoch {epoch + 1}")
+                break
+            
             # Save checkpoint logic here (omitted for brevity)
         
+        print(f"\n🎯 Training completed! Best IoU: {self.best_val_iou:.4f}")
         self.logger.finish()

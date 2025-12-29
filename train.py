@@ -50,14 +50,24 @@ def main():
     )
 
     # Model
-    if config['model']['name'] == 'segformer_b0':
-        model = Segformer(num_classes=config['model']['num_classes'])
-    elif config['model']['name'] == 'unet':
-        model = UNet(n_channels=3, n_classes=config['model']['num_classes'])
-    elif config['model']['name'] == 'unet_viable':
-        model = ResNetUNet(n_classes=config['model']['num_classes'], pretrained=config['model'].get('pretrained', True))
+    model_name = config['model']['name']
+    if model_name == "unet_viable":
+        print("Initializing ResNet34-UNet...")
+        model = ResNetUNet(num_classes=config['model']['num_classes'], pretrained=config['model'].get('pretrained', True))
+    elif model_name == "segformer_hf":
+        from src.models.segformer_hf import SegformerHF
+        print("Initializing HuggingFace Segformer...")
+        # e.g. "nvidia/mit-b0" or "nvidia/segformer-b0-finetuned-ade-512-512"
+        repo = config['model'].get('pretrained_repo', "nvidia/mit-b0")
+        model = SegformerHF(num_classes=config['model']['num_classes'], pretrained_repo=repo)
+    elif model_name == "segformer_manual":
+        from src.models.segformer_manual import SegformerManual
+        print("Initializing Manual Segformer (MiT-B0)...")
+        model = SegformerManual(num_classes=config['model']['num_classes'])
     else:
-        raise ValueError(f"Unknown model name: {config['model']['name']}")
+        # Fallback
+        print(f"Initializing UNet (fallback for unknown model: {model_name})...")
+        model = UNet(n_channels=3, n_classes=config['model']['num_classes'])
 
     # Trainer
     trainer = Trainer(model, train_loader, val_loader, config)

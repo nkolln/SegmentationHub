@@ -1,25 +1,31 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "unet_monitor_2_with_annealing"
+experiment_name: "unet_monitor_2_onecycle"
 
 model:
-  name: "unet_viable"
+  name: "segformer_hf" # Options: unet_viable, segformer_hf, segformer_manual
   num_classes: 12
   pretrained: true
+  # pretrained_repo: "nvidia/mit-b0" # Lightweight (ImageNet only)
+  pretrained_repo: "nvidia/segformer-b4-finetuned-cityscapes-1024-1024" # SOTA (Cityscapes Pretrained)
 
 training:
-  batch_size: 8
-  num_epochs: 100
-  learning_rate: 6e-5
+  batch_size: 2
+  gradient_accumulation_steps: 4 # Effective Batch Size = 2*4 = 8
+  num_epochs: 50  # Extended for better convergence
+  learning_rate: .00006
+  max_lr: .0001  # Maximum LR for OneCycleLR
   weight_decay: 0.05
   optimizer: "adamw"
-  scheduler: "polynomial"
-  warmup_epochs: 10
+  scheduler: "combined"  # Changed from polynomial for better convergence
+  warmup_ratio: 0.3  # 30% of training for warmup
   seed: 42
+  use_amp: false  # Disabled temporarily - focal loss + FP16 can cause NaN
+  early_stopping_patience: 15  # Stop if no improvement for 15 epochs
 
 loss:
-  type: "combined"
-  # class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] # Optional: uniform or calculated
-  class_weights: null
+  type: "focal"  # Changed from "combined" for better class balancing
+  focal_alpha: 0.25  # Focus on hard examples
+  focal_gamma: 2.0  # Standard focal loss focusing parameter
   label_smoothing: 0.1
 
 data:
