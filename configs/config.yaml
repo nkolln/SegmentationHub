@@ -1,8 +1,8 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "unet_monitor_2_dice"
+experiment_name: "segformer_hf_nvidia_dice_one_cycle"
 
 model:
-  name: "unet_viable"
+  name: "segformer_hf"
   num_classes: 12
   pretrained: true
 
@@ -17,7 +17,7 @@ training:
   seed: 42
 
 loss:
-  type: "dice"
+  type: "focal"
   # class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] # Optional: uniform or calculated
   class_weights: null
   label_smoothing: 0.1

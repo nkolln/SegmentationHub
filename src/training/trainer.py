@@ -7,6 +7,7 @@ from torchmetrics import JaccardIndex
 import numpy as np
 from src.training.losses import CombinedLoss,DiceLoss
 from src.training.focal_loss import FocalLoss
+from torch.optim.lr_scheduler import OneCycleLR
 
 class Trainer:
     """

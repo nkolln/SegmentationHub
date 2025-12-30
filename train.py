@@ -56,6 +56,12 @@ def main():
         model = UNet(n_channels=3, n_classes=config['model']['num_classes'])
     elif config['model']['name'] == 'unet_viable':
         model = ResNetUNet(n_classes=config['model']['num_classes'], pretrained=config['model'].get('pretrained', True))
+    elif config['model']['name'] == "segformer_hf":
+        from src.models.segformer_hf import SegformerHF
+        print("Initializing HuggingFace Segformer...")
+        # e.g. "nvidia/mit-b0" or "nvidia/segformer-b0-finetuned-ade-512-512"
+        repo = config['model'].get('pretrained_repo', "nvidia/segformer-b0-finetuned-ade-512-512")
+        model = SegformerHF(num_classes=config['model']['num_classes'], pretrained_repo=repo)
     else:
         raise ValueError(f"Unknown model name: {config['model']['name']}")
 
