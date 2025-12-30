@@ -1,5 +1,5 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "unet_monitor_2_with_annealing"
+experiment_name: "unet_monitor_2_dice"
 
 model:
   name: "unet_viable"
@@ -17,7 +17,7 @@ training:
   seed: 42
 
 loss:
-  type: "combined"
+  type: "dice"
   # class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] # Optional: uniform or calculated
   class_weights: null
   label_smoothing: 0.1

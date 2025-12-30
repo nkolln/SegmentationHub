@@ -5,7 +5,8 @@ from src.utils.logger import Logger
 import wandb
 from torchmetrics import JaccardIndex
 import numpy as np
-from src.training.losses import CombinedLoss
+from src.training.losses import CombinedLoss,DiceLoss
+from src.training.focal_loss import FocalLoss
 
 class Trainer:
     """
@@ -29,10 +30,19 @@ class Trainer:
         class_weights = config['loss'].get('class_weights', None)
         if class_weights:
              class_weights = torch.tensor(class_weights).float().to(self.device)
+        # # class_weights = compute_class_weights(train_dataset)
+        # class_sample_count = np.unique(train_loader.dataset.targets, return_counts=True)[1]
+        # weight = 1. / class_sample_count
+        # samples_weight = weight[target]
+        # class_weights = torch.from_numpy(samples_weight)
 
         loss_type = config['loss'].get('type', 'cross_entropy')
         if loss_type == 'combined':
             self.criterion = CombinedLoss(weight=class_weights)
+        elif loss_type == 'focal':
+            self.criterion = FocalLoss()
+        elif loss_type == 'dice':
+            self.criterion = DiceLoss()
         else:
             self.criterion = nn.CrossEntropyLoss(weight=class_weights)
             
@@ -44,10 +54,12 @@ class Trainer:
         self.iou_metric = JaccardIndex(task="multiclass", num_classes=self.num_classes).to(self.device)
         
         # Scheduler
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, 
-            T_max=config['training']['num_epochs'], 
-            eta_min=1e-6
+        self.scheduler = OneCycleLR(
+            self.optimizer,
+            max_lr=6e-5,
+            epochs=config['training']['num_epochs'],
+            steps_per_epoch=len(self.train_loader),
+            pct_start=0.3,  # Warmup for 30% of training
         )
 
     def train_epoch(self, epoch):
