@@ -60,7 +60,7 @@ def main():
         from src.models.segformer_hf import SegformerHF
         print("Initializing HuggingFace Segformer...")
         # e.g. "nvidia/mit-b0" or "nvidia/segformer-b0-finetuned-ade-512-512"
-        repo = config['model'].get('pretrained_repo', "nvidia/segformer-b0-finetuned-ade-512-512")
+        repo = config['model'].get('pretrained_repo', "nvidia/segformer-b4-finetuned-cityscapes-1024-1024")
         model = SegformerHF(num_classes=config['model']['num_classes'], pretrained_repo=repo)
     else:
         raise ValueError(f"Unknown model name: {config['model']['name']}")
