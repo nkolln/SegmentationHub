@@ -5,7 +5,7 @@ from src.utils.logger import Logger
 import wandb
 from torchmetrics import JaccardIndex
 import numpy as np
-from src.training.losses import CombinedLoss
+from src.training.losses import CombinedLoss,DiceLoss
 from src.training.focal_loss import FocalLoss
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.cuda.amp import autocast, GradScaler
@@ -13,6 +13,7 @@ from torch.cuda.amp import autocast, GradScaler
 class Trainer:
     """
     Trainer class for managing the training and validation loops.
+    Supports encoder freezing with gradual unfreezing.
     """
     def __init__(self, model, train_loader, val_loader, config):
         self.model = model
@@ -22,11 +23,21 @@ class Trainer:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         self.model.to(self.device)
-        self.optimizer = torch.optim.AdamW(
-            self.model.parameters(), 
-            lr=float(config['training']['learning_rate']),
-            weight_decay=float(config['training']['weight_decay'])
-        )
+        
+        # Encoder freezing configuration
+        self.freeze_encoder = config['training'].get('freeze_encoder', False)
+        self.unfreeze_epoch = config['training'].get('unfreeze_epoch', 5)
+        self.encoder_lr_mult = config['training'].get('encoder_lr_mult', 0.1)
+        self.encoder_frozen = False
+        
+        # Apply initial encoder freeze if configured
+        if self.freeze_encoder:
+            self._freeze_encoder()
+            print(f"🔒 Encoder frozen. Will unfreeze at epoch {self.unfreeze_epoch}")
+        
+        # Create optimizer with parameter groups (encoder vs decoder)
+        base_lr = float(config['training']['learning_rate'])
+        self.optimizer = self._create_optimizer(base_lr, config)
         
         # Handle class weights if provided, convert to tensor
         class_weights = config['loss'].get('class_weights', None)
@@ -43,6 +54,8 @@ class Trainer:
             )
         elif loss_type == 'combined':
             self.criterion = CombinedLoss(weight=class_weights)
+        elif loss_type == 'dice':
+            self.criterion = DiceLoss()
         else:
             self.criterion = nn.CrossEntropyLoss(weight=class_weights)
             
@@ -82,8 +95,82 @@ class Trainer:
         self.best_val_iou = 0.0
         self.patience_counter = 0
         self.should_stop = False
+    
+    def _get_encoder_decoder_params(self):
+        """
+        Separate model parameters into encoder and decoder groups.
+        Works with different model architectures.
+        """
+        encoder_params = []
+        decoder_params = []
+        
+        for name, param in self.model.named_parameters():
+            # Common encoder layer names across architectures
+            if any(enc in name.lower() for enc in ['encoder', 'backbone', 'resnet', 'segformer', 'mit', 'efficientnet']):
+                encoder_params.append(param)
+            else:
+                decoder_params.append(param)
+        
+        # Fallback: if no encoder found, treat first 70% as encoder
+        if len(encoder_params) == 0:
+            all_params = list(self.model.parameters())
+            split_idx = int(len(all_params) * 0.7)
+            encoder_params = all_params[:split_idx]
+            decoder_params = all_params[split_idx:]
+        
+        return encoder_params, decoder_params
+    
+    def _create_optimizer(self, base_lr, config):
+        """Create optimizer with separate parameter groups for encoder/decoder."""
+        encoder_params, decoder_params = self._get_encoder_decoder_params()
+        
+        param_groups = [
+            {'params': decoder_params, 'lr': base_lr, 'name': 'decoder'},
+        ]
+        
+        # Only add encoder params if not frozen
+        if not self.encoder_frozen:
+            param_groups.append({
+                'params': encoder_params, 
+                'lr': base_lr * self.encoder_lr_mult, 
+                'name': 'encoder'
+            })
+        
+        return torch.optim.AdamW(
+            param_groups,
+            weight_decay=float(config['training']['weight_decay'])
+        )
+    
+    def _freeze_encoder(self):
+        """Freeze encoder parameters."""
+        encoder_params, _ = self._get_encoder_decoder_params()
+        for param in encoder_params:
+            param.requires_grad = False
+        self.encoder_frozen = True
+        
+        frozen_count = sum(1 for p in self.model.parameters() if not p.requires_grad)
+        total_count = sum(1 for _ in self.model.parameters())
+        print(f"   Frozen {frozen_count}/{total_count} parameters")
+    
+    def _unfreeze_encoder(self):
+        """Unfreeze encoder parameters and update optimizer."""
+        encoder_params, _ = self._get_encoder_decoder_params()
+        for param in encoder_params:
+            param.requires_grad = True
+        self.encoder_frozen = False
+        
+        # Recreate optimizer with encoder params included
+        base_lr = float(self.config['training']['learning_rate'])
+        self.optimizer = self._create_optimizer(base_lr, self.config)
+        
+        # Note: scheduler will continue from current state
+        print(f"🔓 Encoder unfrozen! Now training all parameters with encoder_lr_mult={self.encoder_lr_mult}")
 
     def train_epoch(self, epoch):
+        # Check if we should unfreeze encoder this epoch
+        if self.freeze_encoder and self.encoder_frozen and epoch >= self.unfreeze_epoch:
+            self._unfreeze_encoder()
+        
         self.model.train()
         pbar = tqdm(self.train_loader, desc=f"Epoch {epoch}")
         

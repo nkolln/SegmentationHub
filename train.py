@@ -64,6 +64,16 @@ def main():
         from src.models.segformer_manual import SegformerManual
         print("Initializing Manual Segformer (MiT-B0)...")
         model = SegformerManual(num_classes=config['model']['num_classes'])
+    elif model_name == "deeplabv3plus":
+        from src.models.deeplabv3 import DeepLabV3Plus
+        encoder = config['model'].get('encoder_name', 'resnet101')
+        print(f"Initializing DeepLabV3+ with {encoder} encoder...")
+        model = DeepLabV3Plus(num_classes=config['model']['num_classes'], encoder_name=encoder)
+    elif model_name == "unetplusplus":
+        from src.models.deeplabv3 import UNetPlusPlus
+        encoder = config['model'].get('encoder_name', 'efficientnet-b4')
+        print(f"Initializing UNet++ with {encoder} encoder...")
+        model = UNetPlusPlus(num_classes=config['model']['num_classes'], encoder_name=encoder)
     else:
         # Fallback
         print(f"Initializing UNet (fallback for unknown model: {model_name})...")

@@ -1,31 +1,35 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "unet_monitor_2_onecycle"
+experiment_name: "deeplabv3plus_combined_fixed_aug"
 
 model:
-  name: "segformer_hf" # Options: unet_viable, segformer_hf, segformer_manual
+  name: "deeplabv3plus" # Options: unet_viable, segformer_hf, segformer_manual, deeplabv3plus, unetplusplus
   num_classes: 12
   pretrained: true
-  # pretrained_repo: "nvidia/mit-b0" # Lightweight (ImageNet only)
-  pretrained_repo: "nvidia/segformer-b4-finetuned-cityscapes-1024-1024" # SOTA (Cityscapes Pretrained)
+  encoder_name: "resnet101"  # For DeepLabV3+/UNet++: resnet101, efficientnet-b4, etc.
+  pretrained_repo: "nvidia/segformer-b4-finetuned-cityscapes-1024-1024" # For segformer_hf only
 
 training:
-  batch_size: 2
-  gradient_accumulation_steps: 4 # Effective Batch Size = 2*4 = 8
-  num_epochs: 50  # Extended for better convergence
+  batch_size: 4
+  gradient_accumulation_steps: 2 # Effective Batch Size = 4*2 = 8
+  num_epochs: 50
   learning_rate: .00006
-  max_lr: .0001  # Maximum LR for OneCycleLR
+  max_lr: .0001
   weight_decay: 0.05
   optimizer: "adamw"
-  scheduler: "combined"  # Changed from polynomial for better convergence
-  warmup_ratio: 0.3  # 30% of training for warmup
+  scheduler: "onecycle"
+  warmup_ratio: 0.3
   seed: 42
-  use_amp: false  # Disabled temporarily - focal loss + FP16 can cause NaN
-  early_stopping_patience: 15  # Stop if no improvement for 15 epochs
+  use_amp: true
+  early_stopping_patience: 15
+  # Encoder freezing options
+  freeze_encoder: true           # Freeze encoder initially for stable decoder training
+  unfreeze_epoch: 5              # Epoch to unfreeze encoder
+  encoder_lr_mult: 0.1           # Encoder LR = base_lr * 0.1 (10x lower)
 
 loss:
-  type: "focal"  # Changed from "combined" for better class balancing
-  focal_alpha: 0.25  # Focus on hard examples
-  focal_gamma: 2.0  # Standard focal loss focusing parameter
+  type: "combined"  # CE + Dice for better stability and performance
+  focal_alpha: 0.25
+  focal_gamma: 2.0
   label_smoothing: 0.1
 
 data:

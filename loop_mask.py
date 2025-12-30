@@ -3,10 +3,12 @@ import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 
-folder = "run-20251229_201507-jjzvty76"
+folder = "run-20251230_102512-a82oisuy"
 dirs = os.listdir(f"wandb/{folder}/files/media/images/mask/")
 
 for d in dirs:
+    if "legible" in d:
+        continue
     mask_path = f"wandb/{folder}/files/media/images/mask/{d}"
     output_path = f"wandb/{folder}/files/media/images/mask/legible_{d}"
     if os.path.exists(mask_path):
