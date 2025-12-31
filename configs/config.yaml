@@ -1,36 +1,37 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "deeplabv3plus_combined_fixed_aug"
+experiment_name: "segformer_binary_facade_no_freeze_b4"
 
 model:
-  name: "deeplabv3plus" # Options: unet_viable, segformer_hf, segformer_manual, deeplabv3plus, unetplusplus
-  num_classes: 12
+  name: "segformer_hf" # Options: unet_viable, segformer_hf, segformer_manual, deeplabv3plus, unetplusplus
+  num_classes: 2
   pretrained: true
-  encoder_name: "resnet101"  # For DeepLabV3+/UNet++: resnet101, efficientnet-b4, etc.
-  pretrained_repo: "nvidia/segformer-b4-finetuned-cityscapes-1024-1024" # For segformer_hf only
+  encoder_name: "mit-b4"  # Updated to reflect B4
+  pretrained_repo: "nvidia/segformer-b4-finetuned-cityscapes-1024-1024" # Upgraded from B2
 
 training:
   batch_size: 4
-  gradient_accumulation_steps: 2 # Effective Batch Size = 4*2 = 8
-  num_epochs: 50
-  learning_rate: .00006
-  max_lr: .0001
-  weight_decay: 0.05
+  gradient_accumulation_steps: 2 # Effective Batch Size = 8
+  num_epochs: 100 # Increased for better convergence with freezing
+  learning_rate: 0.00006
+  max_lr: 0.0003
+  weight_decay: 0.01
   optimizer: "adamw"
   scheduler: "onecycle"
-  warmup_ratio: 0.3
+  warmup_ratio: 0.1
   seed: 42
-  use_amp: true
-  early_stopping_patience: 15
+  use_amp: false
+  early_stopping_patience: 20
   # Encoder freezing options
-  freeze_encoder: true           # Freeze encoder initially for stable decoder training
-  unfreeze_epoch: 5              # Epoch to unfreeze encoder
-  encoder_lr_mult: 0.1           # Encoder LR = base_lr * 0.1 (10x lower)
+  freeze_encoder: true           
+  unfreeze_epoch: 10              # Unfreeze after initially training the decoder
+  encoder_lr_mult: 0.1           # 10x lower learning rate for backbone
 
 loss:
   type: "combined"  # CE + Dice for better stability and performance
   focal_alpha: 0.25
   focal_gamma: 2.0
   label_smoothing: 0.1
+  class_weights: [1.0, 3.0]
 
 data:
   root_dir: "data"

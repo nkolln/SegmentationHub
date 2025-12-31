@@ -1,4 +1,5 @@
 import torch
+import os
 import torch.nn as nn
 from tqdm import tqdm
 from src.utils.logger import Logger
@@ -44,6 +45,7 @@ class Trainer:
         if class_weights:
              class_weights = torch.tensor(class_weights).float().to(self.device)
 
+        print(class_weights)
         # Loss function - support for focal loss
         loss_type = config['loss'].get('type', 'cross_entropy')
         if loss_type == 'focal':
@@ -64,14 +66,22 @@ class Trainer:
         
         # Metrics
         self.num_classes = config['model']['num_classes']
-        self.iou_metric = JaccardIndex(task="multiclass", num_classes=self.num_classes).to(self.device)
+        if self.num_classes == 2:
+            self.iou_metric = JaccardIndex(task="binary").to(self.device)
+        else:
+            self.iou_metric = JaccardIndex(task="multiclass", num_classes=self.num_classes).to(self.device)
         
         # Scheduler - OneCycleLR for better convergence
         scheduler_type = config['training'].get('scheduler', 'cosine')
         if scheduler_type == 'onecycle':
+            max_lr_base = config['training'].get('max_lr', 1e-4)
+            # Create a list of max_lrs for each param group
+            # Group 0: Decoder, Group 1: Encoder
+            max_lrs = [max_lr_base, max_lr_base * self.encoder_lr_mult]
+            
             self.scheduler = OneCycleLR(
                 self.optimizer,
-                max_lr=config['training'].get('max_lr', 1e-4),
+                max_lr=max_lrs,
                 epochs=config['training']['num_epochs'],
                 steps_per_epoch=len(train_loader),
                 pct_start=config['training'].get('warmup_ratio', 0.3),
@@ -121,28 +131,24 @@ class Trainer:
         return encoder_params, decoder_params
     
     def _create_optimizer(self, base_lr, config):
-        """Create optimizer with separate parameter groups for encoder/decoder."""
+        """Create optimizer with both encoder and decoder groups present from the start."""
         encoder_params, decoder_params = self._get_encoder_decoder_params()
+        weight_decay = float(config['training']['weight_decay'])
         
         param_groups = [
-            {'params': decoder_params, 'lr': base_lr, 'name': 'decoder'},
-        ]
-        
-        # Only add encoder params if not frozen
-        if not self.encoder_frozen:
-            param_groups.append({
+            {'params': decoder_params, 'lr': base_lr, 'name': 'decoder', 'weight_decay': weight_decay},
+            {
                 'params': encoder_params, 
                 'lr': base_lr * self.encoder_lr_mult, 
-                'name': 'encoder'
-            })
+                'name': 'encoder',
+                'weight_decay': 0.0 if self.freeze_encoder else weight_decay # Avoid weight decay on frozen params
+            },
+        ]
         
-        return torch.optim.AdamW(
-            param_groups,
-            weight_decay=float(config['training']['weight_decay'])
-        )
+        return torch.optim.AdamW(param_groups)
     
     def _freeze_encoder(self):
-        """Freeze encoder parameters."""
+        """Initial freeze of encoder parameters."""
         encoder_params, _ = self._get_encoder_decoder_params()
         for param in encoder_params:
             param.requires_grad = False
@@ -151,20 +157,21 @@ class Trainer:
         frozen_count = sum(1 for p in self.model.parameters() if not p.requires_grad)
         total_count = sum(1 for _ in self.model.parameters())
         print(f"   Frozen {frozen_count}/{total_count} parameters")
-    
+
     def _unfreeze_encoder(self):
-        """Unfreeze encoder parameters and update optimizer."""
+        """Unfreeze encoder parameters and enable weight decay for its group."""
         encoder_params, _ = self._get_encoder_decoder_params()
         for param in encoder_params:
             param.requires_grad = True
+        
+        # Enable weight decay for the encoder group (it's at index 1)
+        weight_decay = float(self.config['training']['weight_decay'])
+        for group in self.optimizer.param_groups:
+            if group.get('name') == 'encoder':
+                group['weight_decay'] = weight_decay
+        
         self.encoder_frozen = False
-        
-        # Recreate optimizer with encoder params included
-        base_lr = float(self.config['training']['learning_rate'])
-        self.optimizer = self._create_optimizer(base_lr, self.config)
-        
-        # Note: scheduler will continue from current state
-        print(f"🔓 Encoder unfrozen! Now training all parameters with encoder_lr_mult={self.encoder_lr_mult}")
+        print(f"🔓 Encoder unfrozen! Enabled gradients and weight decay for encoder group.")
 
     def train_epoch(self, epoch):
         # Check if we should unfreeze encoder this epoch
@@ -314,7 +321,7 @@ class Trainer:
             self.best_val_iou = mean_iou
             self.patience_counter = 0
             print(f"  ✓ New best IoU: {mean_iou:.4f}")
-            # TODO: Save best checkpoint here
+            self._save_checkpoint(epoch, is_best=True)
         else:
             self.patience_counter += 1
             print(f"  No improvement for {self.patience_counter} epochs")
@@ -332,7 +339,33 @@ class Trainer:
                 print(f"Training stopped early at epoch {epoch + 1}")
                 break
             
-            # Save checkpoint logic here (omitted for brevity)
+            # Periodic checkpoint saving
+            self._save_checkpoint(epoch, is_best=False)
         
         print(f"\n🎯 Training completed! Best IoU: {self.best_val_iou:.4f}")
         self.logger.finish()
+
+    def _save_checkpoint(self, epoch, is_best=False):
+        """Save model checkpoint."""
+        save_dir = self.config['logging'].get('output_dir', 'outputs')
+        os.makedirs(save_dir, exist_ok=True)
+        
+        state = {
+            'epoch': epoch,
+            'state_dict': self.model.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'best_iou': self.best_val_iou,
+            'config': self.config
+        }
+        
+        if is_best:
+            path = os.path.join(save_dir, 'best_model.pth')
+            torch.save(state, path)
+            print(f"  💾 Best model saved to {path}")
+        
+        # Periodic saving logic (e.g. every 5 epochs)
+        save_freq = self.config['logging'].get('save_checkpoint_every_n_epochs', 5)
+        if (epoch + 1) % save_freq == 0:
+            path = os.path.join(save_dir, f'checkpoint_epoch_{epoch+1}.pth')
+            torch.save(state, path)
+            print(f"  💾 Checkpoint saved to {path}")

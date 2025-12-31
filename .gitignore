@@ -6,3 +6,4 @@
 *.xml
 *.zip
 /wandb
+*.pth
