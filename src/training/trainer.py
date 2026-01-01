@@ -10,6 +10,9 @@ from src.training.losses import CombinedLoss,DiceLoss
 from src.training.focal_loss import FocalLoss
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.cuda.amp import autocast, GradScaler
+import matplotlib.pyplot as plt
+import io
+from PIL import Image
 
 class Trainer:
     """
@@ -253,7 +256,8 @@ class Trainer:
         vis_images, vis_masks, vis_preds = None, None, None
         
         with torch.no_grad():
-            for batch_idx, (images, masks) in enumerate(self.val_loader):
+            vbar = tqdm(self.val_loader, desc=f"Validating Epoch {epoch}", leave=False)
+            for batch_idx, (images, masks) in enumerate(vbar):
                 images, masks = images.to(self.device), masks.to(self.device)
                 outputs = self.model(images)
                 loss = self.criterion(outputs, masks.long())
@@ -279,39 +283,46 @@ class Trainer:
         
         # Log visualization (only if wandb is active)
         if self.config['logging']['use_wandb'] and vis_images is not None:
-            # Take the first image in the batch
-            image = vis_images[0] # Tensor (3, H, W)
-            
-            # Unnormalize: (image * std) + mean
-            mean = torch.tensor([0.485, 0.456, 0.406]).to(image.device).view(3, 1, 1)
-            std = torch.tensor([0.229, 0.224, 0.225]).to(image.device).view(3, 1, 1)
-            image = image * std + mean
-            image = torch.clamp(image, 0, 1)
-            
-            image_np = image.permute(1, 2, 0).numpy()
-            image_np = (image_np * 255).astype(np.uint8)
-            
-            gt_mask = vis_masks[0].numpy()
-            pred_mask = vis_preds[0].numpy()
-            
-            # Create interactive mask overlay
-            class_labels = {i: f"Class {i}" for i in range(self.num_classes)}
-            
-            # Debug: Print stats about what we are visualizing
-            print(f"DEBUG Vis: GT values: {np.unique(gt_mask)}, Pred values: {np.unique(pred_mask)}")
-            
-            wandb_image = wandb.Image(image_np, masks={
-                "predictions": {
-                    "mask_data": pred_mask,
-                    "class_labels": class_labels
-                },
-                "ground_truth": {
-                    "mask_data": gt_mask,
-                    "class_labels": class_labels
-                }
-            }, caption=f"Epoch {epoch} Prediction")
-            
-            metrics['val_prediction'] = wandb_image
+            try:
+                # Take the first image in the batch
+                image = vis_images[0] # Tensor (3, H, W)
+                
+                # Unnormalize: (image * std) + mean
+                mean = torch.tensor([0.485, 0.456, 0.406]).to(image.device).view(3, 1, 1)
+                std = torch.tensor([0.229, 0.224, 0.225]).to(image.device).view(3, 1, 1)
+                image = image * std + mean
+                image = torch.clamp(image, 0, 1)
+                
+                image_np = image.permute(1, 2, 0).numpy()
+                image_np = (image_np * 255).astype(np.uint8)
+                
+                gt_mask = vis_masks[0].numpy()
+                pred_mask = vis_preds[0].numpy()
+                
+                # Create interactive mask overlay
+                class_labels = {i: f"Class {i}" for i in range(self.num_classes)}
+                
+                # Debug: Print stats about what we are visualizing
+                print(f"DEBUG Vis: GT values: {np.unique(gt_mask)}, Pred values: {np.unique(pred_mask)}")
+                
+                wandb_image = wandb.Image(image_np, masks={
+                    "predictions": {
+                        "mask_data": pred_mask,
+                        "class_labels": class_labels
+                    },
+                    "ground_truth": {
+                        "mask_data": gt_mask,
+                        "class_labels": class_labels
+                    }
+                }, caption=f"Epoch {epoch} Prediction")
+                
+                metrics['val_prediction'] = wandb_image
+
+                # Automated legible masks (using the loop_mask.py logic)
+                metrics['legible_ground_truth'] = self._generate_legible_mask(gt_mask, f"Epoch {epoch} GT")
+                metrics['legible_prediction'] = self._generate_legible_mask(pred_mask, f"Epoch {epoch} Pred")
+            except Exception as e:
+                print(f"  ⚠ Failed to create wandb image: {e}")
 
         self.logger.log_metrics(metrics, step=self.global_step)
         print(f"Epoch {epoch} | Val Loss: {avg_val_loss:.4f} | Val IoU: {mean_iou:.4f}")
@@ -348,6 +359,8 @@ class Trainer:
     def _save_checkpoint(self, epoch, is_best=False):
         """Save model checkpoint."""
         save_dir = self.config['logging'].get('output_dir', 'outputs')
+        if self.config.get('experiment_name', None):
+            save_dir = os.path.join(save_dir, self.config.get('experiment_name'))
         os.makedirs(save_dir, exist_ok=True)
         
         state = {
@@ -369,3 +382,18 @@ class Trainer:
             path = os.path.join(save_dir, f'checkpoint_epoch_{epoch+1}.pth')
             torch.save(state, path)
             print(f"  💾 Checkpoint saved to {path}")
+
+    def _generate_legible_mask(self, mask_np, title):
+        """Generates a color-mapped visualization of a mask, similar to loop_mask.py"""
+        plt.figure(figsize=(10, 10))
+        plt.imshow(mask_np, cmap='tab20', vmin=0, vmax=max(11, np.max(mask_np)))
+        plt.colorbar()
+        plt.title(f"{title} (Values: {np.unique(mask_np)})")
+        
+        # Save to buffer
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+        
+        return wandb.Image(Image.open(buf), caption=title)

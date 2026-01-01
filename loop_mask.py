@@ -3,7 +3,7 @@ import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 
-folder = "run-20251231_103503-o7efyyvm"
+folder = "run-20251231_140448-fzo6zg1w"
 dirs = os.listdir(f"wandb/{folder}/files/media/images/mask/")
 
 for d in dirs:

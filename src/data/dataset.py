@@ -34,19 +34,19 @@ class SegmentationDataset(Dataset):
         
         image = np.array(Image.open(image_path).convert("RGB"))
         # Mask is usually single channel
-        mask = np.array(Image.open(mask_path)) 
-
-        
-        # mask = mask.astype(np.int64) - 1
+        mask = np.array(Image.open(mask_path))
+        mask = mask.astype(np.int64) - 1
+        # mask = np.where((mask == 1), 1, mask)
+        # mask = np.where((mask == 9) | (mask == 2) | (mask == 5), 2, mask)
+        # mask = np.where(mask>2, 0, mask)
         
         # # Clip to ensure no negative values just in case (e.g. if 0 existed)
-        # mask = np.clip(mask, 0, None)
-        
+        mask = np.clip(mask, 0, None)
         # Binary mapping: only facade is paintable.
         # Based on label_names.txt, facade is 2.
         # We map original label 2 -> 1 (paintable), others -> 0 (non-paintable)
-        binary_mask = (mask == 2).astype(np.int64)
-        mask = binary_mask
+        # binary_mask = (mask == 2).astype(np.int64)
+        # mask = binary_mask
 
         if self.transform:
             augmented = self.transform(image=image, mask=mask)

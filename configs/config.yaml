@@ -1,16 +1,16 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "segformer_binary_facade_no_freeze_b4"
+experiment_name: "segformer_3class_facade_windows_b4"
 
 model:
   name: "segformer_hf" # Options: unet_viable, segformer_hf, segformer_manual, deeplabv3plus, unetplusplus
-  num_classes: 2
+  num_classes: 12
   pretrained: true
   encoder_name: "mit-b4"  # Updated to reflect B4
   pretrained_repo: "nvidia/segformer-b4-finetuned-cityscapes-1024-1024" # Upgraded from B2
 
 training:
-  batch_size: 4
-  gradient_accumulation_steps: 2 # Effective Batch Size = 8
+  batch_size: 8
+  gradient_accumulation_steps: 1 # Effective Batch Size = 8
   num_epochs: 100 # Increased for better convergence with freezing
   learning_rate: 0.00006
   max_lr: 0.0003
@@ -19,7 +19,7 @@ training:
   scheduler: "onecycle"
   warmup_ratio: 0.1
   seed: 42
-  use_amp: false
+  use_amp: true
   early_stopping_patience: 20
   # Encoder freezing options
   freeze_encoder: true           
@@ -31,7 +31,6 @@ loss:
   focal_alpha: 0.25
   focal_gamma: 2.0
   label_smoothing: 0.1
-  class_weights: [1.0, 3.0]
 
 data:
   root_dir: "data"
@@ -39,7 +38,7 @@ data:
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
-  num_workers: 4
+  num_workers: 0
 
 logging:
   use_wandb: true
