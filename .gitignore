@@ -7,3 +7,6 @@
 *.zip
 /wandb
 *.pth
+*.pt
+*.txt
+*.pkl

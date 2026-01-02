@@ -1,35 +1,34 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "dinov2b_extended_boundary_4class"
+experiment_name: "mask2former_large_test_4class"
 
 model:
-  name: "dinov2" # Options: unet_viable, segformer_hf, mask2former, dinov2
+  name: "mask2former" # Options: unet_viable, segformer_hf, mask2former, dinov2
   num_classes: 4
   pretrained: true
-  encoder_name: "dinov2_vitb14"  # Options: dinov2_vits14, dinov2_vitb14
-  pretrained_repo: ""
+  encoder_name: "swin-large"  # Backbone variant
+  pretrained_repo: "facebook/mask2former-swin-large-cityscapes-semantic"
 
 training:
-  batch_size: 8 # DINOv2-ViTS is very lightweight
-  gradient_accumulation_steps: 1
-  num_epochs: 50 
-  learning_rate: 0.0001
-  max_lr: 0.0005
-  weight_decay: 0.01
+  batch_size: 2 # Mask2Former is memory intensive
+  gradient_accumulation_steps: 4 # Effective Batch Size = 8
+  num_epochs: 80 
+  learning_rate: 0.00005 # Mask2Former often prefers lower LR
+  max_lr: 0.0002
+  weight_decay: 0.05
   optimizer: "adamw"
   scheduler: "onecycle"
   warmup_ratio: 0.1
   seed: 42
-  use_amp: false 
+  use_amp: true # Transformer-based models benefit greatly from AMP
   early_stopping_patience: 15
   # Encoder freezing options
   freeze_encoder: true           
   unfreeze_epoch: 5
-  encoder_lr_mult: 0.01          
-  use_tta: true                  # Enable Test-Time Augmentation for validation
-  tta_every_n_epochs: 5          # Run TTA only every N epochs to save time
+  encoder_lr_mult: 0.1
+  use_tta: true # Keep TTA enabled for best metrics
 
 loss:
-  type: "combined"  # CE + Dice for better stability and performance
+  type: "combined" # CE + Dice
   boundary_weight: 0.1 # Weight for the boundary loss
   focal_alpha: 0.25
   focal_gamma: 2.0
@@ -38,7 +37,7 @@ loss:
 data:
   root_dir: "data"
   sources: ["base", "extended"]
-  image_size: 518 # Multiple of 14 for DINOv2
+  image_size: 512
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
@@ -48,7 +47,7 @@ logging:
   use_wandb: true
   log_every_n_steps: 10
   save_checkpoint_every_n_epochs: 5
-  output_dir: "outputs"
+  output_dir: "outputs/mask2former"
 
 monitoring:
   track_gradients: true

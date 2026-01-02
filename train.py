@@ -11,7 +11,7 @@ from src.training.trainer import Trainer
 
 def main():
     parser = argparse.ArgumentParser(description="Train Segmentation Model")
-    parser.add_argument('--config', type=str, default='configs/config.yaml', help='Path to config file')
+    parser.add_argument('--config', type=str, default='configs/config_mask.yaml', help='Path to config file')
     parser.add_argument('--dry-run', action='store_true', help='Verify basic pipeline functionality')
     args = parser.parse_args()
 
@@ -24,15 +24,20 @@ def main():
         config['logging']['use_wandb'] = False
 
     # Data
+    sources = config['data'].get('sources', ['base'])
+    print(f"Loading data from sources: {sources}")
+
     train_dataset = SegmentationDataset(
         root_dir=config['data']['root_dir'], 
         split='train',
-        transform=get_train_transforms(config['data']['image_size'])
+        transform=get_train_transforms(config['data']['image_size']),
+        sources=sources
     )
     val_dataset = SegmentationDataset(
         root_dir=config['data']['root_dir'], 
         split='val',
-        transform=get_val_transforms(config['data']['image_size'])
+        transform=get_val_transforms(config['data']['image_size']),
+        sources=sources
     )
 
     # Dataloaders - handle num_workers=0 if debugging or windows issues arise
@@ -74,6 +79,16 @@ def main():
         encoder = config['model'].get('encoder_name', 'efficientnet-b4')
         print(f"Initializing UNet++ with {encoder} encoder...")
         model = UNetPlusPlus(num_classes=config['model']['num_classes'], encoder_name=encoder)
+    elif model_name == "mask2former":
+        from src.models.mask2former import Mask2FormerHF
+        repo = config['model'].get('pretrained_repo', "facebook/mask2former-swin-tiny-cityscapes-semantic")
+        print(f"Initializing Mask2Former ({repo})...")
+        model = Mask2FormerHF(num_classes=config['model']['num_classes'], pretrained_repo=repo)
+    elif model_name == "dinov2":
+        from src.models.dinov2 import DinoV2Seg
+        variant = config['model'].get('encoder_name', 'dinov2_vits14')
+        print(f"Initializing DINOv2 Segmentation ({variant})...")
+        model = DinoV2Seg(num_classes=config['model']['num_classes'], model_type=variant)
     else:
         # Fallback
         print(f"Initializing UNet (fallback for unknown model: {model_name})...")

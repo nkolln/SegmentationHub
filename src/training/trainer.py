@@ -1,6 +1,8 @@
 import torch
+import math
 import os
 import torch.nn as nn
+import torch.nn.functional as F
 from tqdm import tqdm
 from src.utils.logger import Logger
 import wandb
@@ -13,6 +15,7 @@ from torch.cuda.amp import autocast, GradScaler
 import matplotlib.pyplot as plt
 import io
 from PIL import Image
+import cv2 # For connected components
 
 class Trainer:
     """
@@ -58,11 +61,26 @@ class Trainer:
                 ignore_index=255
             )
         elif loss_type == 'combined':
-            self.criterion = CombinedLoss(weight=class_weights)
+            boundary_weight = 0.0
+            if config['loss'].get('use_boundary_loss', True):
+                boundary_weight = config['loss'].get('boundary_weight', 0.1)
+            self.criterion = CombinedLoss(weight=class_weights, boundary_weight=boundary_weight)
+            if boundary_weight > 0:
+                 print(f"✅ Boundary Loss enabled (Weight: {boundary_weight})")
         elif loss_type == 'dice':
             self.criterion = DiceLoss()
         else:
             self.criterion = nn.CrossEntropyLoss(weight=class_weights)
+            
+        # Optional Counting Loss
+        self.use_counting_loss = config['training'].get('use_counting_loss', False)
+        if self.use_counting_loss:
+            self.counting_criterion = nn.MSELoss()
+            self.counting_loss_weight = config['training'].get('counting_loss_weight', 0.1)
+            print(f"✅ Auxiliary Window Counting Loss enabled (Weight: {self.counting_loss_weight})")
+        else:
+             self.use_counting_loss = False
+             self.counting_loss_weight = 0.0
             
         self.logger = Logger(config)
         self.global_step = 0
@@ -188,14 +206,34 @@ class Trainer:
         accumulation_steps = self.config['training'].get('gradient_accumulation_steps', 1)
         self.optimizer.zero_grad() # Initialize gradients once
         
-        for batch_idx, (images, masks) in enumerate(pbar):
-            images, masks = images.to(self.device), masks.to(self.device)
+        for batch_idx, batch_data in enumerate(pbar):
+            # Dataset returns 3 items?
+            if len(batch_data) == 3:
+                images, masks, counts = batch_data
+                images, masks, counts = images.to(self.device), masks.to(self.device), counts.to(self.device)
+            else:
+                images, masks = batch_data
+                images, masks = images.to(self.device), masks.to(self.device)
+                counts = None
             
             # Forward pass with mixed precision
             if self.use_amp:
                 with autocast():
                     outputs = self.model(images)
-                    loss = self.criterion(outputs, masks.long())
+                    
+                    # Handle Aux Output
+                    if isinstance(outputs, tuple):
+                        seg_logits, count_pred = outputs
+                    else:
+                        seg_logits = outputs
+                        count_pred = None
+                        
+                    loss = self.criterion(seg_logits, masks.long())
+                    
+                    if self.use_counting_loss and count_pred is not None and counts is not None:
+                        count_loss = self.counting_criterion(count_pred, counts)
+                        loss = loss + self.counting_loss_weight * count_loss
+                    
                     loss = loss / accumulation_steps
                 
                 # Backward pass with gradient scaling
@@ -203,7 +241,20 @@ class Trainer:
             else:
                 # Standard forward/backward
                 outputs = self.model(images)
-                loss = self.criterion(outputs, masks.long())
+                
+                # Handle Aux Output
+                if isinstance(outputs, tuple):
+                    seg_logits, count_pred = outputs
+                else:
+                    seg_logits = outputs
+                    count_pred = None
+                    
+                loss = self.criterion(seg_logits, masks.long())
+                
+                if self.use_counting_loss and count_pred is not None and counts is not None:
+                    count_loss = self.counting_criterion(count_pred, counts)
+                    loss = loss + self.counting_loss_weight * count_loss
+                    
                 loss = loss / accumulation_steps
                 loss.backward()
             
@@ -252,6 +303,12 @@ class Trainer:
         val_loss = 0
         self.iou_metric.reset()
         
+        # Domain Metrics Accumulators
+        total_window_count_error = 0.0
+        total_head_error = 0.0
+        total_area_error = 0.0
+        n_samples = 0
+
         # Select one batch for visualization (first batch)
         vis_images, vis_masks, vis_preds = None, None, None
         
@@ -259,7 +316,17 @@ class Trainer:
             vbar = tqdm(self.val_loader, desc=f"Validating Epoch {epoch}", leave=False)
             for batch_idx, (images, masks) in enumerate(vbar):
                 images, masks = images.to(self.device), masks.to(self.device)
-                outputs = self.model(images)
+                
+                # Conditional TTA based on frequency
+                use_tta = self.config['training'].get('use_tta', False)
+                tta_freq = self.config['training'].get('tta_every_n_epochs', 1)
+                do_tta = use_tta and (epoch % tta_freq == 0)
+
+                if do_tta:
+                    outputs = self._tta_inference(images)
+                else:
+                    outputs = self.model(images)
+                    
                 loss = self.criterion(outputs, masks.long())
                 val_loss += loss.item()
                 
@@ -267,6 +334,44 @@ class Trainer:
                 preds = torch.argmax(outputs, dim=1)
                 self.iou_metric.update(preds, masks)
                 
+                # --- Domain Metrics Calculation ---
+                # Move to CPU for numpy operations
+                batch_preds_np = preds.detach().cpu().numpy().astype(np.uint8)
+                batch_masks_np = masks.detach().cpu().numpy().astype(np.uint8)
+                
+                for i in range(len(batch_preds_np)):
+                    # 1. Window Count Error (Class 2)
+                    # Use XML counts if available, otherwise fallback to connected components
+                    gt_wins = (batch_masks_np[i] == 2).astype(np.uint8)
+                    if gt_counts is not None:
+                        n_gt = float(gt_counts[i].item())
+                    else:
+                        n_gt = float(cv2.connectedComponents(gt_wins)[0] - 1)
+                        
+                    # Predicted count from Segmentation Head (connected components)
+                    pred_wins = (batch_preds_np[i] == 2).astype(np.uint8)
+                    n_pred_mask = float(cv2.connectedComponents(pred_wins)[0] - 1)
+                    
+                    # Error for Segmentation Mask
+                    total_window_count_error += abs(n_pred_mask - n_gt)
+                    
+                    # Error for Counting Head (if exists)
+                    if pred_count is not None:
+                         n_pred_head = float(pred_count[i].item())
+                         total_head_error += abs(n_pred_head - n_gt)
+                    
+                    # 2. Area Error (Class 1 = Facade)
+                    gt_area = np.sum(batch_masks_np[i] == 1)
+                    pred_area = np.sum(batch_preds_np[i] == 1)
+                    
+                    # Avoid division by zero
+                    if gt_area > 0:
+                        err = abs(pred_area - gt_area) / gt_area
+                    else:
+                        err = 0.0 if pred_area == 0 else 1.0
+                    total_area_error += err
+                    n_samples += 1
+
                 # Capture variables for visualization from the first batch
                 if batch_idx == 0:
                     vis_images = images.cpu()
@@ -276,10 +381,19 @@ class Trainer:
         avg_val_loss = val_loss / len(self.val_loader) if len(self.val_loader) > 0 else 0
         mean_iou = self.iou_metric.compute().item()
         
+        avg_win_err = total_window_count_error / max(1, n_samples)
+        avg_head_err = total_head_error / max(1, n_samples)
+        avg_area_err = total_area_error / max(1, n_samples)
+        
         metrics = {
             'val_loss': avg_val_loss,
-            'val_iou': mean_iou
+            'val_iou': mean_iou,
+            'val_window_count_error': avg_win_err,
+            'val_head_error': avg_head_err,
+            'val_area_error_pct': avg_area_err
         }
+        
+        print(f"  > Metrics: IoU={mean_iou:.4f} | WinErr={avg_win_err:.2f} | HeadErr={avg_head_err:.2f} | AreaErr={avg_area_err:.2%}")
         
         # Log visualization (only if wandb is active)
         if self.config['logging']['use_wandb'] and vis_images is not None:
@@ -397,3 +511,66 @@ class Trainer:
         buf.seek(0)
         
         return wandb.Image(Image.open(buf), caption=title)
+
+    def _tta_inference(self, images):
+        """
+        Multi-Scale Test-Time Augmentation (TTA).
+        Scales: [0.75, 1.0, 1.25] + Horizontal Flip
+        """
+        scales = [0.75, 1.0, 1.25]
+        flips = [False, True]
+        
+        # Output accumulation
+        total_logits = 0
+        n_augs = 0
+        
+        B, C, H, W = images.shape
+        
+        for scale in scales:
+            # Resize image
+            if scale != 1.0:
+                raw_h, raw_w = H * scale, W * scale
+                divisor = 14
+                
+                # Robust calculation: Ensure >= raw dims and divisible by 14
+                scaled_h = int(math.ceil(raw_h / divisor) * divisor)
+                scaled_w = int(math.ceil(raw_w / divisor) * divisor)
+                
+                scaled_images = F.interpolate(images, size=(scaled_h, scaled_w), mode='bilinear', align_corners=False)
+            else:
+                scaled_images = images
+                
+            for flip in flips:
+                if flip:
+                    inp = torch.flip(scaled_images, dims=[3])
+                else:
+                    inp = scaled_images
+                
+                # Inference
+                with torch.no_grad():
+                    # Check for AMP
+                    if self.use_amp:
+                         with autocast():
+                            outputs = self.model(inp)
+                    else:
+                        outputs = self.model(inp)
+                
+                # Handle Aux Output (Tuple)
+                # We only TTA the segmentation logits, ignoring counting head for now
+                if isinstance(outputs, tuple):
+                    logits = outputs[0]
+                else:
+                    logits = outputs
+                
+                # Undo flip
+                if flip:
+                    logits = torch.flip(logits, dims=[3])
+                
+                # Undo scaling (resize back to original H, W)
+                if scale != 1.0:
+                    logits = F.interpolate(logits, size=(H, W), mode='bilinear', align_corners=False)
+                
+                total_logits += logits
+                n_augs += 1
+                
+        return total_logits / n_augs

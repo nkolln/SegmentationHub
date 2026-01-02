@@ -1,15 +1,15 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "dinov2b_extended_boundary_4class"
+experiment_name: "dinov2s_counting_head"
 
 model:
-  name: "dinov2" # Options: unet_viable, segformer_hf, mask2former, dinov2
+  name: "dinov2_counting" # New model with head
   num_classes: 4
   pretrained: true
-  encoder_name: "dinov2_vitb14"  # Options: dinov2_vits14, dinov2_vitb14
+  encoder_name: "dinov2_vits14"  # backbone
   pretrained_repo: ""
 
 training:
-  batch_size: 8 # DINOv2-ViTS is very lightweight
+  batch_size: 8
   gradient_accumulation_steps: 1
   num_epochs: 50 
   learning_rate: 0.0001
@@ -25,12 +25,17 @@ training:
   freeze_encoder: true           
   unfreeze_epoch: 5
   encoder_lr_mult: 0.01          
-  use_tta: true                  # Enable Test-Time Augmentation for validation
-  tta_every_n_epochs: 5          # Run TTA only every N epochs to save time
+  use_tta: true
+  tta_every_n_epochs: 5
+  
+  # COUNTING HEAD CONFIG
+  use_counting_loss: true
+  counting_loss_weight: 0.1 # Weight relative to segmentation loss
 
 loss:
-  type: "combined"  # CE + Dice for better stability and performance
-  boundary_weight: 0.1 # Weight for the boundary loss
+  type: "combined"
+  use_boundary_loss: true # OPTION: Set to false to disable
+  boundary_weight: 0.1 
   focal_alpha: 0.25
   focal_gamma: 2.0
   label_smoothing: 0.1
@@ -38,7 +43,7 @@ loss:
 data:
   root_dir: "data"
   sources: ["base", "extended"]
-  image_size: 518 # Multiple of 14 for DINOv2
+  image_size: 518
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
@@ -48,7 +53,7 @@ logging:
   use_wandb: true
   log_every_n_steps: 10
   save_checkpoint_every_n_epochs: 5
-  output_dir: "outputs"
+  output_dir: "outputs/dinov2_counting"
 
 monitoring:
   track_gradients: true
