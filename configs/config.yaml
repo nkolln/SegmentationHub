@@ -1,29 +1,29 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "mask2former_swin_base"
+experiment_name: "dinov2s_extended_4class_ms"
 
 model:
-  name: "mask2former" # Options: unet_viable, segformer_hf, mask2former, dinov2
+  name: "dinov2" # Options: unet_viable, segformer_hf, mask2former, dinov2
   num_classes: 4
   pretrained: true
-  encoder_name: "swin-base" 
-  pretrained_repo: "facebook/mask2former-swin-base-IN21k-cityscapes-semantic"
+  encoder_name: "dinov2_vits14"  # Options: dinov2_vits14, dinov2_vitb14
+  pretrained_repo: ""
 
 training:
-  batch_size: 4 # Reduced for Swin-Base
+  batch_size: 8 # DINOv2-ViTS is very lid
   num_epochs: 50 
-  learning_rate: 0.0001 # 1e-4 Base LR
+  learning_rate: 0.0001
   max_lr: 0.0005
   weight_decay: 0.01
   optimizer: "adamw"
   scheduler: "onecycle"
   warmup_ratio: 0.1
   seed: 42
-  use_amp: true # Enable AMP for memory saving 
+  use_amp: false 
   early_stopping_patience: 15
   # Encoder freezing options
   freeze_encoder: true           
   unfreeze_epoch: 5
-  encoder_lr_mult: 0.1 # 1e-5 Encoder LR (0.1 * 1e-4)        
+  encoder_lr_mult: 0.01         
   use_tta: false                  # Enable Test-Time Augmentation for validation
   tta_every_n_epochs: 5          # Run TTA only every N epochs to save time
 
@@ -34,7 +34,7 @@ loss:
   label_smoothing: 0.1
   use_boundary_loss: false 
   boundary_weight: 0.1
-  use_focal_loss: true # Integrate Focal Loss into CombinedLoss
+  use_focal_loss: false # Integrate Focal Loss into CombinedLoss
 
 data:
   root_dir: "data"
