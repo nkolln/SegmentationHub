@@ -1,49 +1,47 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "dinov2s_counting_head"
+experiment_name: "mask2former_swin_base"
 
 model:
-  name: "dinov2_counting" # New model with head
+  name: "mask2former" # Options: unet_viable, segformer_hf, mask2former, dinov2
   num_classes: 4
   pretrained: true
-  encoder_name: "dinov2_vits14"  # backbone
-  pretrained_repo: ""
+  encoder_name: "swin-base" 
+  pretrained_repo: "facebook/mask2former-swin-base-cityscapes-semantic"
+  #pretrained_repo: "facebook/mask2former-swin-base-IN21k-cityscapes-semantic"
+
 
 training:
-  batch_size: 8
-  gradient_accumulation_steps: 1
+  batch_size: 8 # Reduced for Swin-Base
   num_epochs: 50 
-  learning_rate: 0.0001
+  learning_rate: 0.0001 # 1e-4 Base LR
   max_lr: 0.0005
   weight_decay: 0.01
   optimizer: "adamw"
   scheduler: "onecycle"
   warmup_ratio: 0.1
   seed: 42
-  use_amp: false 
+  use_amp: true # Enable AMP for memory saving 
   early_stopping_patience: 15
   # Encoder freezing options
   freeze_encoder: true           
   unfreeze_epoch: 5
-  encoder_lr_mult: 0.01          
-  use_tta: true
-  tta_every_n_epochs: 5
-  
-  # COUNTING HEAD CONFIG
-  use_counting_loss: true
-  counting_loss_weight: 0.1 # Weight relative to segmentation loss
+  encoder_lr_mult: 0.1 # 1e-5 Encoder LR (0.1 * 1e-4)        
+  use_tta: false                  # Enable Test-Time Augmentation for validation
+  tta_every_n_epochs: 5          # Run TTA only every N epochs to save time
 
 loss:
-  type: "combined"
-  use_boundary_loss: true # OPTION: Set to false to disable
-  boundary_weight: 0.1 
+  type: "combined"  # CE + Dice for better stability and performance
   focal_alpha: 0.25
   focal_gamma: 2.0
   label_smoothing: 0.1
+  use_boundary_loss: false 
+  boundary_weight: 0.1
+  use_focal_loss: false # Integrate Focal Loss into CombinedLoss
 
 data:
   root_dir: "data"
   sources: ["base", "extended"]
-  image_size: 518
+  image_size: 518 # Multiple of 14 for DINOv2
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
@@ -53,7 +51,7 @@ logging:
   use_wandb: true
   log_every_n_steps: 10
   save_checkpoint_every_n_epochs: 5
-  output_dir: "outputs/dinov2_counting"
+  output_dir: "outputs"
 
 monitoring:
   track_gradients: true
