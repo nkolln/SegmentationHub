@@ -1,16 +1,16 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "dinov2b_extended_boundary_4class"
+experiment_name: "dinov2s_extended_4class_ms"
 
 model:
   name: "dinov2" # Options: unet_viable, segformer_hf, mask2former, dinov2
   num_classes: 4
   pretrained: true
-  encoder_name: "dinov2_vitb14"  # Options: dinov2_vits14, dinov2_vitb14
+  encoder_name: "dinov2_vits14"  # Options: dinov2_vits14, dinov2_vitb14
   pretrained_repo: ""
+  head_type: "multiscale" # Options: simple, aspp, multiscale
 
 training:
-  batch_size: 8 # DINOv2-ViTS is very lightweight
-  gradient_accumulation_steps: 1
+  batch_size: 8 # DINOv2-ViTS is very lid
   num_epochs: 50 
   learning_rate: 0.0001
   max_lr: 0.0005
@@ -24,16 +24,18 @@ training:
   # Encoder freezing options
   freeze_encoder: true           
   unfreeze_epoch: 5
-  encoder_lr_mult: 0.01          
-  use_tta: true                  # Enable Test-Time Augmentation for validation
+  encoder_lr_mult: 0.01         
+  use_tta: false                  # Enable Test-Time Augmentation for validation
   tta_every_n_epochs: 5          # Run TTA only every N epochs to save time
 
 loss:
   type: "combined"  # CE + Dice for better stability and performance
-  boundary_weight: 0.1 # Weight for the boundary loss
   focal_alpha: 0.25
   focal_gamma: 2.0
   label_smoothing: 0.1
+  use_boundary_loss: false 
+  boundary_weight: 0.1
+  use_focal_loss: false # Integrate Focal Loss into CombinedLoss
 
 data:
   root_dir: "data"

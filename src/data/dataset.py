@@ -42,13 +42,8 @@ class SegmentationDataset(Dataset):
         mask = np.where((mask == 9) | (mask == 2) | (mask == 7), 2, mask)
         mask = np.where(mask>2, 3, mask)
         
-        # # Clip to ensure no negative values just in case (e.g. if 0 existed)
+        # Clip to ensure no negative values just in case (e.g. if 0 existed)
         mask = np.clip(mask, 0, None)
-        # Binary mapping: only facade is paintable.
-        # Based on label_names.txt, facade is 2.
-        # We map original label 2 -> 1 (paintable), others -> 0 (non-paintable)
-        # binary_mask = (mask == 2).astype(np.int64)
-        # mask = binary_mask
 
         # Parse XML for window count
         window_count = 0.0

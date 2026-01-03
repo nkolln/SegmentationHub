@@ -87,8 +87,9 @@ def main():
     elif model_name == "dinov2":
         from src.models.dinov2 import DinoV2Seg
         variant = config['model'].get('encoder_name', 'dinov2_vits14')
-        print(f"Initializing DINOv2 Segmentation ({variant})...")
-        model = DinoV2Seg(num_classes=config['model']['num_classes'], model_type=variant)
+        head_type = config['model'].get('head_type', 'simple')
+        print(f"Initializing DINOv2 Segmentation ({variant}) with {head_type} head...")
+        model = DinoV2Seg(num_classes=config['model']['num_classes'], model_type=variant, head_type=head_type)
     else:
         # Fallback
         print(f"Initializing UNet (fallback for unknown model: {model_name})...")

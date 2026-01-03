@@ -12,6 +12,8 @@ from src.training.losses import CombinedLoss,DiceLoss
 from src.training.focal_loss import FocalLoss
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.cuda.amp import autocast, GradScaler
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import io
 from PIL import Image
@@ -62,9 +64,24 @@ class Trainer:
             )
         elif loss_type == 'combined':
             boundary_weight = 0.0
-            if config['loss'].get('use_boundary_loss', True):
+            if config['loss'].get('use_boundary_loss', False):
                 boundary_weight = config['loss'].get('boundary_weight', 0.1)
-            self.criterion = CombinedLoss(weight=class_weights, boundary_weight=boundary_weight)
+            
+            use_focal = config['loss'].get('use_focal_loss', False)
+            focal_alpha = config['loss'].get('focal_alpha', 0.25)
+            focal_gamma = config['loss'].get('focal_gamma', 2.0)
+            
+            self.criterion = CombinedLoss(
+                weight=class_weights, 
+                boundary_weight=boundary_weight,
+                use_focal=use_focal,
+                focal_alpha=focal_alpha,
+                focal_gamma=focal_gamma
+            )
+            
+            if use_focal:
+                print(f"✅ Focal Loss enabled in CombinedLoss (Alpha: {focal_alpha}, Gamma: {focal_gamma})")
+            
             if boundary_weight > 0:
                  print(f"✅ Boundary Loss enabled (Weight: {boundary_weight})")
         elif loss_type == 'dice':
@@ -314,7 +331,14 @@ class Trainer:
         
         with torch.no_grad():
             vbar = tqdm(self.val_loader, desc=f"Validating Epoch {epoch}", leave=False)
-            for batch_idx, (images, masks) in enumerate(vbar):
+            for batch_idx, batch_data in enumerate(vbar):
+                if len(batch_data) == 3:
+                     images, masks, counts = batch_data
+                     gt_counts = counts.to(self.device)
+                else:
+                     images, masks = batch_data
+                     gt_counts = None
+                
                 images, masks = images.to(self.device), masks.to(self.device)
                 
                 # Conditional TTA based on frequency
@@ -326,6 +350,11 @@ class Trainer:
                     outputs = self._tta_inference(images)
                 else:
                     outputs = self.model(images)
+                
+                if isinstance(outputs, tuple):
+                    outputs, pred_count = outputs
+                else:
+                    pred_count = None
                     
                 loss = self.criterion(outputs, masks.long())
                 val_loss += loss.item()

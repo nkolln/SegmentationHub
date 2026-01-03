@@ -129,10 +129,17 @@ class DiceLoss(nn.Module):
         # Average over classes and batch
         return 1.0 - dice_score.mean()
 
+from .focal_loss import FocalLoss
+
 class CombinedLoss(nn.Module):
-    def __init__(self, weight=None, ignore_index=-100, dice_weight=0.5, ce_weight=0.5, boundary_weight=0.0):
+    def __init__(self, weight=None, ignore_index=-100, dice_weight=0.5, ce_weight=0.5, boundary_weight=0.0, use_focal=False, focal_alpha=0.25, focal_gamma=2.0):
         super(CombinedLoss, self).__init__()
-        self.ce = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
+        
+        if use_focal:
+            self.ce = FocalLoss(alpha=focal_alpha, gamma=focal_gamma, ignore_index=ignore_index if ignore_index is not None else 255)
+        else:
+            self.ce = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
+            
         self.dice = DiceLoss(ignore_index=ignore_index)
         self.boundary = BoundaryLoss()
         
