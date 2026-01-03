@@ -1,17 +1,18 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "mask2former_swin_base"
+experiment_name: "mask2former_swin_base_IN21k_4class_05"
 
 model:
   name: "mask2former" # Options: unet_viable, segformer_hf, mask2former, dinov2
   num_classes: 4
   pretrained: true
   encoder_name: "swin-base" 
-  pretrained_repo: "facebook/mask2former-swin-base-cityscapes-semantic"
-  #pretrained_repo: "facebook/mask2former-swin-base-IN21k-cityscapes-semantic"
+  # pretrained_repo: "facebook/mask2former-swin-large-cityscapes-semantic"
+  #pretrained_repo: "facebook/mask2former-swin-base-cityscapes-semantic"
+  pretrained_repo: "facebook/mask2former-swin-base-IN21k-cityscapes-semantic"
 
 
 training:
-  batch_size: 8 # Reduced for Swin-Base
+  batch_size: 4 # Reduced for Swin-Base
   num_epochs: 50 
   learning_rate: 0.0001 # 1e-4 Base LR
   max_lr: 0.0005
@@ -25,7 +26,7 @@ training:
   # Encoder freezing options
   freeze_encoder: true           
   unfreeze_epoch: 5
-  encoder_lr_mult: 0.1 # 1e-5 Encoder LR (0.1 * 1e-4)        
+  encoder_lr_mult: 0.5       
   use_tta: false                  # Enable Test-Time Augmentation for validation
   tta_every_n_epochs: 5          # Run TTA only every N epochs to save time
 
