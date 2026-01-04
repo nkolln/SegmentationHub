@@ -6,18 +6,19 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from src.utils.logger import Logger
 import wandb
-from torchmetrics import JaccardIndex
+from torchmetrics import JaccardIndex, ConfusionMatrix
 import numpy as np
 from src.training.losses import CombinedLoss,DiceLoss
 from src.training.focal_loss import FocalLoss
 from torch.optim.lr_scheduler import OneCycleLR
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import io
 from PIL import Image
 import cv2 # For connected components
+import seaborn as sns
 
 class Trainer:
     """
@@ -30,6 +31,7 @@ class Trainer:
         self.val_loader = val_loader
         self.config = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.num_classes = config['model']['num_classes']
         
         self.model.to(self.device)
         
@@ -54,40 +56,20 @@ class Trainer:
              class_weights = torch.tensor(class_weights).float().to(self.device)
 
         print(class_weights)
-        # Loss function - support for focal loss
-        loss_type = config['loss'].get('type', 'cross_entropy')
-        if loss_type == 'focal':
-            self.criterion = FocalLoss(
-                alpha=config['loss'].get('focal_alpha', 0.25),
-                gamma=config['loss'].get('focal_gamma', 2.0),
-                ignore_index=255
-            )
-        elif loss_type == 'combined':
-            boundary_weight = 0.0
-            if config['loss'].get('use_boundary_loss', False):
-                boundary_weight = config['loss'].get('boundary_weight', 0.1)
-            
-            use_focal = config['loss'].get('use_focal_loss', False)
-            focal_alpha = config['loss'].get('focal_alpha', 0.25)
-            focal_gamma = config['loss'].get('focal_gamma', 2.0)
-            
-            self.criterion = CombinedLoss(
-                weight=class_weights, 
-                boundary_weight=boundary_weight,
-                use_focal=use_focal,
-                focal_alpha=focal_alpha,
-                focal_gamma=focal_gamma
-            )
-            
-            if use_focal:
-                print(f"✅ Focal Loss enabled in CombinedLoss (Alpha: {focal_alpha}, Gamma: {focal_gamma})")
-            
-            if boundary_weight > 0:
-                 print(f"✅ Boundary Loss enabled (Weight: {boundary_weight})")
-        elif loss_type == 'dice':
-            self.criterion = DiceLoss()
-        else:
-            self.criterion = nn.CrossEntropyLoss(weight=class_weights)
+        # Loss function - Dynamic initialization
+        loss_config = config.get('loss', {})
+        
+        # We use CombinedLoss as the primary entry point now
+        self.criterion = CombinedLoss(
+            loss_config=loss_config,
+            num_classes=self.num_classes,
+            weight=class_weights,
+            ignore_index=config['loss'].get('ignore_index', -100)
+        )
+        
+        print(f"✅ Loss initialized with: {list(self.criterion.loss_weights.keys())}")
+        for l_name, l_weight in self.criterion.loss_weights.items():
+            print(f"   - {l_name}: weight {l_weight}")
             
         # Optional Counting Loss
         self.use_counting_loss = config['training'].get('use_counting_loss', False)
@@ -103,11 +85,12 @@ class Trainer:
         self.global_step = 0
         
         # Metrics
-        self.num_classes = config['model']['num_classes']
         if self.num_classes == 2:
             self.iou_metric = JaccardIndex(task="binary").to(self.device)
+            self.conf_matrix = ConfusionMatrix(task="binary").to(self.device)
         else:
             self.iou_metric = JaccardIndex(task="multiclass", num_classes=self.num_classes).to(self.device)
+            self.conf_matrix = ConfusionMatrix(task="multiclass", num_classes=self.num_classes).to(self.device)
         
         # Scheduler - OneCycleLR for better convergence
         scheduler_type = config['training'].get('scheduler', 'cosine')
@@ -136,7 +119,7 @@ class Trainer:
         
         # Mixed precision training for speed
         self.use_amp = config['training'].get('use_amp', True)
-        self.scaler = GradScaler() if self.use_amp else None
+        self.scaler = GradScaler('cuda') if self.use_amp else None
         
         # Early stopping
         self.early_stopping_patience = config['training'].get('early_stopping_patience', 10)
@@ -235,7 +218,7 @@ class Trainer:
             
             # Forward pass with mixed precision
             if self.use_amp:
-                with autocast():
+                with autocast('cuda'):
                     outputs = self.model(images)
                     
                     # Handle Aux Output
@@ -299,7 +282,7 @@ class Trainer:
                     self.scheduler.step()
                 
                 # Logging (log the accumulated/actual loss, so multiply back)
-                if batch_idx % self.config['logging']['log_every_n_steps'] == 0:
+                if self.global_step % self.config['logging'].get('log_every_n_steps', 10) == 0:
                     self.logger.log_metrics({
                         'train_loss': loss.item() * accumulation_steps, 
                         'train_grad_norm': total_norm,
@@ -319,6 +302,7 @@ class Trainer:
         self.model.eval()
         val_loss = 0
         self.iou_metric.reset()
+        self.conf_matrix.reset()
         
         # Domain Metrics Accumulators
         total_window_count_error = 0.0
@@ -362,6 +346,7 @@ class Trainer:
                 # Update IoU metric
                 preds = torch.argmax(outputs, dim=1)
                 self.iou_metric.update(preds, masks)
+                self.conf_matrix.update(preds, masks)
                 
                 # --- Domain Metrics Calculation ---
                 # Move to CPU for numpy operations
@@ -467,6 +452,18 @@ class Trainer:
             except Exception as e:
                 print(f"  ⚠ Failed to create wandb image: {e}")
 
+        # Log confusion matrix to WandB
+        if self.config['logging']['use_wandb']:
+            try:
+                cm = self.conf_matrix.compute().cpu().numpy()
+                class_names = [f"Class {i}" for i in range(self.num_classes)]
+                
+                # Also log a heatmap image of the confusion matrix
+                metrics['confusion_matrix_plot'] = self._plot_confusion_matrix(cm, class_names, epoch)
+
+            except Exception as e:
+                print(f"  ⚠ Failed to log confusion matrix table: {e}")
+
         self.logger.log_metrics(metrics, step=self.global_step)
         print(f"Epoch {epoch} | Val Loss: {avg_val_loss:.4f} | Val IoU: {mean_iou:.4f}")
         
@@ -498,6 +495,33 @@ class Trainer:
         
         print(f"\n🎯 Training completed! Best IoU: {self.best_val_iou:.4f}")
         self.logger.finish()
+
+    def _plot_confusion_matrix(self, cm, class_names, epoch):
+        """
+        Generates a professional heatmap plot using Seaborn.
+        """
+        # Normalize the confusion matrix: row-wise (actual class)
+        cm_norm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        cm_norm = np.nan_to_num(cm_norm) # Handle division by zero for rare classes
+        
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(cm_norm, annot=True, fmt=".2f", cmap='Blues',
+                    xticklabels=class_names, yticklabels=class_names)
+        
+        plt.title(f'Normalized Confusion Matrix - Epoch {epoch}')
+        plt.ylabel('Actual Label')
+        plt.xlabel('Predicted Label')
+        plt.tight_layout()
+        
+        # Buffer to WandB image
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        img = Image.open(buf)
+        wandb_img = wandb.Image(img, caption=f"Normalized Confusion Matrix Epoch {epoch}")
+        plt.close()
+        
+        return wandb_img
 
     def _save_checkpoint(self, epoch, is_best=False):
         """Save model checkpoint."""
@@ -579,7 +603,7 @@ class Trainer:
                 with torch.no_grad():
                     # Check for AMP
                     if self.use_amp:
-                         with autocast():
+                         with autocast('cuda'):
                             outputs = self.model(inp)
                     else:
                         outputs = self.model(inp)

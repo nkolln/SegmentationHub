@@ -132,29 +132,62 @@ class DiceLoss(nn.Module):
 from .focal_loss import FocalLoss
 
 class CombinedLoss(nn.Module):
-    def __init__(self, weight=None, ignore_index=-100, dice_weight=0.5, ce_weight=0.5, boundary_weight=0.0, use_focal=False, focal_alpha=0.25, focal_gamma=2.0):
+    """
+    Highly flexible loss class that combines multiple loss functions based on configuration.
+    Example config:
+    {
+        'cross_entropy': 0.5,
+        'dice': 0.5,
+        'focal': {'weight': 0.0, 'alpha': 0.25, 'gamma': 2.0},
+        'boundary': 0.1
+    }
+    """
+    def __init__(self, loss_config, num_classes=4, weight=None, ignore_index=-100):
         super(CombinedLoss, self).__init__()
-        
-        if use_focal:
-            self.ce = FocalLoss(alpha=focal_alpha, gamma=focal_gamma, ignore_index=ignore_index if ignore_index is not None else 255)
-        else:
-            self.ce = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
-            
-        self.dice = DiceLoss(ignore_index=ignore_index)
-        self.boundary = BoundaryLoss()
-        
-        self.dice_weight = dice_weight
-        self.ce_weight = ce_weight
-        self.boundary_weight = boundary_weight
+        self.loss_weights = {}
+        self.losses = nn.ModuleDict()
+        self.num_classes = num_classes
+        self.ignore_index = ignore_index
+
+        for loss_name, config in loss_config.items():
+            if isinstance(config, (int, float)):
+                weight_val = float(config)
+                params = {}
+            elif isinstance(config, dict):
+                weight_val = float(config.get('weight', 0.0))
+                params = {k: v for k, v in config.items() if k != 'weight'}
+            else:
+                continue
+
+            if weight_val <= 0:
+                continue
+
+            self.loss_weights[loss_name] = weight_val
+
+            if loss_name == 'cross_entropy':
+                self.losses[loss_name] = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
+            elif loss_name == 'dice':
+                self.losses[loss_name] = DiceLoss(ignore_index=ignore_index, **params)
+            elif loss_name == 'focal':
+                self.losses[loss_name] = FocalLoss(ignore_index=ignore_index if ignore_index != -100 else 255, **params)
+            elif loss_name == 'boundary':
+                self.losses[loss_name] = BoundaryLoss(num_classes=num_classes)
+            else:
+                print(f"⚠️ Warning: Unknown loss type '{loss_name}' encountered in config. Skipping.")
+                del self.loss_weights[loss_name]
+
+        if not self.losses:
+            print("⚠️ Warning: No valid losses found in config. Defaulting to CrossEntropy.")
+            self.losses['cross_entropy'] = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
+            self.loss_weights['cross_entropy'] = 1.0
 
     def forward(self, logits, targets):
-        ce_loss = self.ce(logits, targets)
-        dice_loss = self.dice(logits, targets)
-        
-        total_loss = self.ce_weight * ce_loss + self.dice_weight * dice_loss
-        
-        if self.boundary_weight > 0:
-            boundary_loss = self.boundary(logits, targets)
-            total_loss += self.boundary_weight * boundary_loss
-            
+        total_loss = 0
+        loss_components = {}
+
+        for loss_name, weight in self.loss_weights.items():
+            loss_val = self.losses[loss_name](logits, targets)
+            total_loss += weight * loss_val
+            loss_components[f"loss_{loss_name}"] = loss_val.item()
+
         return total_loss

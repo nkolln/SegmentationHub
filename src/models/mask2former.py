@@ -45,9 +45,11 @@ class Mask2FormerHF(nn.Module):
         
         # Compute final per-pixel logits: (B, num_classes, H, W)
         # This is a simplified version of the Mask2Former inference logic
-        prob_vis = torch.einsum("bqc,bqhw->bchw", mask_cls_logits.softmax(-1)[:, :, :-1], mask_pred_logits.sigmoid())
+        # Instead of returning probabilities (which squashes gradients), 
+        # we return log-probabilities which act as safer logits for CE/Dice loss.
+        probs = torch.einsum("bqc,bqhw->bchw", mask_cls_logits.softmax(-1)[:, :, :-1], mask_pred_logits.sigmoid())
         
-        # We return log-probs or logits. Since our trainer uses CrossEntropyLoss, 
-        # we should return something that looks like logits.
-        # Log is applied after softmax in vis, so we return a logit-like scale.
-        return prob_vis
+        # Add small epsilon to avoid log(0)
+        logits = torch.log(probs + 1e-8)
+        
+        return logits

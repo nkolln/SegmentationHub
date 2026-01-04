@@ -3,7 +3,7 @@ experiment_name: "mask2former_tiny_test_4class"
 
 model:
   name: "mask2former" # Options: unet_viable, segformer_hf, mask2former, dinov2
-  num_classes: 4
+  num_classes: 12
   pretrained: true
   encoder_name: "swin-tiny"  # Backbone variant
   #pretrained_repo: "facebook/mask2former-swin-large-cityscapes-semantic"
@@ -13,9 +13,9 @@ training:
   batch_size: 2 # Mask2Former is memory intensive
   gradient_accumulation_steps: 4 # Effective Batch Size = 8
   num_epochs: 80 
-  learning_rate: 0.0001 # 1e-4 Base LR
-  max_lr: 0.0005
-  weight_decay: 0.05
+  learning_rate: 0.00005 # Dropped from 1e-4 for stability
+  max_lr: 0.0002 # Reduced from 5e-4 to avoid "frying" pretrained weights
+  weight_decay: 0.01 # Slightly lower WD for Swin-Tiny
   optimizer: "adamw"
   scheduler: "onecycle"
   warmup_ratio: 0.1
@@ -25,18 +25,19 @@ training:
   # Encoder freezing options
   freeze_encoder: true           
   unfreeze_epoch: 5
-  encoder_lr_mult: 0.5
+  encoder_lr_mult: 0.1 # Reduced from 0.5 to be MUCH gentler on the backbone
   use_tta: false # Keep TTA enabled for best metrics
 
 loss:
-  type: "combined" # CE + Dice
-  boundary_weight: 0.1 # Weight for the boundary loss
-  focal_alpha: 0.25
-  focal_gamma: 2.0
+  cross_entropy: 1.0 # Standard CE weight
+  dice: 1.0          # Dice loss weight
+  focal:
+    weight: 0.0      # Set to > 0 to enable
+    alpha: 0.25
+    gamma: 2.0
+  boundary: 0.1      # Boundary loss weight
   label_smoothing: 0.1
-  use_boundary_loss: false 
-  boundary_weight: 0.1
-  use_focal_loss: false 
+  ignore_index: 255
 
 data:
   root_dir: "data"

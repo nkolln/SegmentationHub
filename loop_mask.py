@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
 # Configuration
-folder = "run-20260101_222854-4mzrooum"
+folder = "run-20260104_004434-enk2prcd"
 mask_dir = f"wandb/{folder}/files/media/images/mask/"
 
 # Color mapping matching the dataset.py logic
