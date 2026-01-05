@@ -25,11 +25,12 @@ class Trainer:
     Trainer class for managing the training and validation loops.
     Supports encoder freezing with gradual unfreezing.
     """
-    def __init__(self, model, train_loader, val_loader, config):
+    def __init__(self, model, train_loader, val_loader, config, fold=None):
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.config = config
+        self.fold = fold
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.num_classes = config['model']['num_classes']
         
@@ -86,7 +87,7 @@ class Trainer:
              self.use_counting_loss = False
              self.counting_loss_weight = 0.0
             
-        self.logger = Logger(config)
+        self.logger = Logger(config, fold=self.fold)
         self.global_step = 0
         
         # Metrics
@@ -583,18 +584,21 @@ class Trainer:
             'state_dict': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'best_iou': self.best_val_iou,
-            'config': self.config
+            'config': self.config,
+            'fold': self.fold
         }
         
+        fold_str = f"_fold{self.fold}" if self.fold is not None else ""
+        
         if is_best:
-            path = os.path.join(save_dir, 'best_model.pth')
+            path = os.path.join(save_dir, f'best_model{fold_str}.pth')
             torch.save(state, path)
             print(f"  💾 Best model saved to {path}")
         
         # Periodic saving logic (e.g. every 5 epochs)
         save_freq = self.config['logging'].get('save_checkpoint_every_n_epochs', 5)
         if (epoch + 1) % save_freq == 0:
-            path = os.path.join(save_dir, f'checkpoint_epoch_{epoch+1}.pth')
+            path = os.path.join(save_dir, f'checkpoint_epoch_{epoch+1}{fold_str}.pth')
             torch.save(state, path)
             print(f"  💾 Checkpoint saved to {path}")
 

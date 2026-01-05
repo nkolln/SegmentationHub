@@ -8,7 +8,7 @@ class SegmentationDataset(Dataset):
     """
     Custom Dataset for Semantic Segmentation.
     """
-    def __init__(self, root_dir, split='train', transform=None, class_mapping=None, sources=['base']):
+    def __init__(self, root_dir, split='train', transform=None, class_mapping=None, sources=['base'], fold=0, num_folds=None):
         """
         Args:
             root_dir (str): Root directory of the dataset (e.g. data/)
@@ -16,12 +16,16 @@ class SegmentationDataset(Dataset):
             transform (albumentations.Compose): Data augmentation pipeline.
             class_mapping (dict): Dictionary mapping original classes to target classes.
             sources (list): List of source directories in root_dir/raw/ to load from.
+            fold (int): Current fold index (0 to num_folds-1).
+            num_folds (int): Total number of folds for K-fold validation. If None, uses default 80/20 split.
         """
         self.root_dir = root_dir
         self.split = split
         self.transform = transform
         self.class_mapping = class_mapping
         self.sources = sources
+        self.fold = fold
+        self.num_folds = num_folds
         
         self.images = []
         self.masks = []
@@ -84,16 +88,30 @@ class SegmentationDataset(Dataset):
             # Find all jpg images
             all_files = sorted([f for f in os.listdir(base_path) if f.endswith('.jpg')])
             
-            # Simple deterministic split (first 80% train, next 20% val)
+            # Simple deterministic split
             # We split PER SOURCE to ensure balanced distribution
-            split_idx = int(0.8 * len(all_files))
-            
-            if self.split == 'train':
-                files = all_files[:split_idx]
-            elif self.split == 'val':
-                files = all_files[split_idx:]
+            if self.num_folds is not None:
+                # K-fold splitting
+                fold_size = len(all_files) // self.num_folds
+                val_start = self.fold * fold_size
+                # Ensure the last fold takes any remainder
+                val_end = (self.fold + 1) * fold_size if self.fold < self.num_folds - 1 else len(all_files)
+                
+                if self.split == 'train':
+                    files = all_files[:val_start] + all_files[val_end:]
+                elif self.split == 'val':
+                    files = all_files[val_start:val_end]
+                else:
+                    files = all_files # fallback/test
             else:
-                files = all_files # fallback/test
+                # Default 80/20 split
+                split_idx = int(0.8 * len(all_files))
+                if self.split == 'train':
+                    files = all_files[:split_idx]
+                elif self.split == 'val':
+                    files = all_files[split_idx:]
+                else:
+                    files = all_files # fallback/test
                 
             for f in files:
                 img_path = os.path.join(base_path, f)

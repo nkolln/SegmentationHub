@@ -1,5 +1,5 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "mask2formerl4_new_head_clamp_main"
+experiment_name: "mask2formerl4_new_head_clamp_kfold"
 
 model:
   name: "mask2former" # Options: unet_viable, segformer_hf, mask2former, dinov2
@@ -46,7 +46,21 @@ data:
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
+  k_folds: 5
   num_workers: 0
+  # class_mapping:
+  #   0: 0  # Background
+  #   1: 1  # Facade
+  #   2: 2  # Window
+  #   3: 3  # Map unwanted class '3' to Background
+  #   4: 3  # Map unwanted class '4' to Background
+  #   5: 3  # Map unwanted class '5' to Background
+  #   6: 3  # Map unwanted class '6' to Background
+  #   7: 3  # Map unwanted class '7' to Background
+  #   8: 3  # Map unwanted class '8' to Background
+  #   9: 3  # Map unwanted class '9' to Background
+  #   10: 3  # Map unwanted class '10' to Background
+  #   11: 3  # Map unwanted class '11' to Background
 
 logging:
   use_wandb: true
