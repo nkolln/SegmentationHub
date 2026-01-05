@@ -273,6 +273,12 @@ class Trainer:
                         total_norm += param_norm.item() ** 2
                 total_norm = total_norm ** 0.5
                 
+                # Gradient Clipping for stability (especially important for Transformers)
+                if self.use_amp:
+                    self.scaler.unscale_(self.optimizer)
+                
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                
                 # Optimizer step with mixed precision support
                 if self.use_amp:
                     self.scaler.step(self.optimizer)

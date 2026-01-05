@@ -1,13 +1,13 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "mask2former_t_4class_og"
+experiment_name: "mask2formerl4_og_clamp_main"
 
 model:
   name: "mask2former" # Options: unet_viable, segformer_hf, mask2former, dinov2
-  num_classes: 4
+  num_classes: 12
   pretrained: true
-  encoder_name: "swin-tiny"  # Backbone variant
-  #pretrained_repo: "facebook/mask2former-swin-large-cityscapes-semantic"
-  pretrained_repo: "facebook/mask2former-swin-tiny-cityscapes-semantic"
+  encoder_name: "swin-large"  # Backbone variant
+  pretrained_repo: "facebook/mask2former-swin-large-cityscapes-semantic"
+  # pretrained_repo: "facebook/mask2former-swin-tiny-cityscapes-semantic"
 
 training:
   batch_size: 2 # Mask2Former is memory intensive
@@ -17,7 +17,7 @@ training:
   max_lr: 0.0005
   weight_decay: 0.05
   optimizer: "adamw"
-  scheduler: "onecycle"
+  scheduler: "onecycle"1
   warmup_ratio: 0.1
   seed: 42
   use_amp: true # Transformer-based models benefit greatly from AMP

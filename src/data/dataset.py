@@ -38,9 +38,9 @@ class SegmentationDataset(Dataset):
         # Mask is usually single channel
         mask = np.array(Image.open(mask_path))
         mask = mask.astype(np.int64) - 1
-        mask = np.where((mask == 1), 1, mask)
-        mask = np.where((mask == 9) | (mask == 2) | (mask == 7), 2, mask)
-        mask = np.where(mask>2, 3, mask)
+        # mask = np.where((mask == 1), 1, mask)
+        # mask = np.where((mask == 9) | (mask == 2) | (mask == 7), 2, mask)
+        # mask = np.where(mask>2, 3, mask)
         
         # Clip to ensure no negative values just in case (e.g. if 0 existed)
         mask = np.clip(mask, 0, None)

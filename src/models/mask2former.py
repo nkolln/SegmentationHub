@@ -25,11 +25,6 @@ class Mask2FormerHF(nn.Module):
         # but here we use it in a standard segmentation trainer.
         outputs = self.model(pixel_values=x)
         
-        # In semantic mode, we typically want class logits per pixel.
-        # Mask2Former outputs masks and class predictions separately.
-        # The library provides a 'post_process_semantic_segmentation' but 
-        # we need differentiable logits for the loss function.
-        
         # For simplicity and compatibility with standard CE/Dice loss:
         # We use the class-logits and mask-logits to create final segmentation logits.
         mask_cls_logits = outputs.class_queries_logits # (B, num_queries, num_classes + 1)
@@ -46,7 +41,4 @@ class Mask2FormerHF(nn.Module):
         # This is a simplified version of the Mask2Former inference logic
         prob_vis = torch.einsum("bqc,bqhw->bchw", mask_cls_logits.softmax(-1)[:, :, :-1], mask_pred_logits.sigmoid())
         
-        # We return log-probs or logits. Since our trainer uses CrossEntropyLoss, 
-        # we should return something that looks like logits.
-        # Log is applied after softmax in vis, so we return a logit-like scale.
         return prob_vis
