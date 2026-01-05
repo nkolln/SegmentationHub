@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from transformers import Mask2FormerForUniversalSegmentation, Mask2FormerImageProcessor
 
 class Mask2FormerHF(nn.Module):
@@ -42,24 +41,12 @@ class Mask2FormerHF(nn.Module):
             size=x.shape[-2:], 
             mode="bilinear", 
             align_corners=False
-        # Numerically stable combination of class and mask predictions
-        # mask_cls_logits: (B, Q, C+1)
-        # mask_pred_logits: (B, Q, H, W)
-        
-        # 1. Get log-probabilities for classes (excluding background class query)
-        # (B, Q, C)
-        mask_cls_logp = F.log_softmax(mask_cls_logits, dim=-1)[:, :, :-1]
-        
-        # 2. Get log-probabilities for masks (using logsigmoid for stability)
-        # (B, Q, H, W)
-        mask_pred_logp = F.logsigmoid(mask_pred_logits)
-        
-        # 3. Combine in log-space: log(Sum_q(P_cls_q * P_mask_q)) = logsumexp_q(log_P_cls_q + log_P_mask_q)
-        # Resulting logits: (B, C, H, W)
-        # Reshaping for broadcasting: (B, Q, C, 1, 1) + (B, Q, 1, H, W)
-        logits = torch.logsumexp(
-            mask_cls_logp.unsqueeze(-1).unsqueeze(-1) + mask_pred_logp.unsqueeze(2), 
-            dim=1
         )
+        # Compute final per-pixel logits: (B, num_classes, H, W)
+        # This is a simplified version of the Mask2Former inference logic
+        prob_vis = torch.einsum("bqc,bqhw->bchw", mask_cls_logits.softmax(-1)[:, :, :-1], mask_pred_logits.sigmoid())
         
-        return logits
+        # We return log-probs or logits. Since our trainer uses CrossEntropyLoss, 
+        # we should return something that looks like logits.
+        # Log is applied after softmax in vis, so we return a logit-like scale.
+        return prob_vis

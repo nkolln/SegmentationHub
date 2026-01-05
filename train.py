@@ -84,6 +84,11 @@ def main():
         repo = config['model'].get('pretrained_repo', "facebook/mask2former-swin-tiny-cityscapes-semantic")
         print(f"Initializing Mask2Former ({repo})...")
         model = Mask2FormerHF(num_classes=config['model']['num_classes'], pretrained_repo=repo)
+    elif model_name == "mask2former_og":
+        from src.models.mask2former_og import Mask2FormerHF
+        repo = config['model'].get('pretrained_repo', "facebook/mask2former-swin-tiny-cityscapes-semantic")
+        print(f"Initializing Mask2Former ({repo})...")
+        model = Mask2FormerHF(num_classes=config['model']['num_classes'], pretrained_repo=repo)
     elif model_name == "dinov2":
         from src.models.dinov2 import DinoV2Seg
         variant = config['model'].get('encoder_name', 'dinov2_vits14')
