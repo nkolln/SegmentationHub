@@ -54,6 +54,9 @@ class FocalLoss(nn.Module):
         targets_valid = targets_flat[valid_mask]
         probs_valid = probs_flat[valid_mask]
         
+        # Safety clip to prevent out-of-bounds index errors
+        targets_valid = torch.clamp(targets_valid, 0, C - 1)
+        
         # Get probability of true class for each pixel
         pt = probs_valid[torch.arange(len(targets_valid)), targets_valid]
         

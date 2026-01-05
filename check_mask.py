@@ -3,8 +3,8 @@ from PIL import Image
 import os
 import matplotlib.pyplot as plt
 
-mask_path = r"C:\Users\nickk\Documents\Repo\SegmentationHub\wandb\run-20251225_231933-8q53ifbk\files\media\images\mask\val_prediction_182_372d1031665529abcfbb.mask.png"
-output_path = "debug_mask_viz2.png"
+mask_path = r"C:\Users\nickk\Documents\Repo\SegmentationHub\wandb\run-20251229_201507-jjzvty76\files\media\images\mask\val_prediction_0_d0ea6df2d17994eb78d2.mask.png"
+output_path = "debug_mask_viz21.png"
 
 if os.path.exists(mask_path):
     mask = Image.open(mask_path)

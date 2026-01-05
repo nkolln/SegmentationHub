@@ -11,7 +11,7 @@ from src.training.trainer import Trainer
 
 def main():
     parser = argparse.ArgumentParser(description="Train Segmentation Model")
-    parser.add_argument('--config', type=str, default='configs/config.yaml', help='Path to config file')
+    parser.add_argument('--config', type=str, default='configs/config_mask.yaml', help='Path to config file')
     parser.add_argument('--dry-run', action='store_true', help='Verify basic pipeline functionality')
     args = parser.parse_args()
 
@@ -24,15 +24,20 @@ def main():
         config['logging']['use_wandb'] = False
 
     # Data
+    sources = config['data'].get('sources', ['base'])
+    print(f"Loading data from sources: {sources}")
+
     train_dataset = SegmentationDataset(
         root_dir=config['data']['root_dir'], 
         split='train',
-        transform=get_train_transforms(config['data']['image_size'])
+        transform=get_train_transforms(config['data']['image_size']),
+        sources=sources
     )
     val_dataset = SegmentationDataset(
         root_dir=config['data']['root_dir'], 
         split='val',
-        transform=get_val_transforms(config['data']['image_size'])
+        transform=get_val_transforms(config['data']['image_size']),
+        sources=sources
     )
 
     # Dataloaders - handle num_workers=0 if debugging or windows issues arise
@@ -50,20 +55,45 @@ def main():
     )
 
     # Model
-    if config['model']['name'] == 'segformer_b0':
-        model = Segformer(num_classes=config['model']['num_classes'])
-    elif config['model']['name'] == 'unet':
-        model = UNet(n_channels=3, n_classes=config['model']['num_classes'])
-    elif config['model']['name'] == 'unet_viable':
-        model = ResNetUNet(n_classes=config['model']['num_classes'], pretrained=config['model'].get('pretrained', True))
-    elif config['model']['name'] == "segformer_hf":
+    model_name = config['model']['name']
+    if model_name == "unet_viable":
+        print("Initializing ResNet34-UNet...")
+        model = ResNetUNet(num_classes=config['model']['num_classes'], pretrained=config['model'].get('pretrained', True))
+    elif model_name == "segformer_hf":
         from src.models.segformer_hf import SegformerHF
         print("Initializing HuggingFace Segformer...")
         # e.g. "nvidia/mit-b0" or "nvidia/segformer-b0-finetuned-ade-512-512"
-        repo = config['model'].get('pretrained_repo', "nvidia/segformer-b4-finetuned-cityscapes-1024-1024")
+        repo = config['model'].get('pretrained_repo', "nvidia/mit-b0")
         model = SegformerHF(num_classes=config['model']['num_classes'], pretrained_repo=repo)
+    elif model_name == "segformer_manual":
+        from src.models.segformer_manual import SegformerManual
+        print("Initializing Manual Segformer (MiT-B0)...")
+        model = SegformerManual(num_classes=config['model']['num_classes'])
+    elif model_name == "deeplabv3plus":
+        from src.models.deeplabv3 import DeepLabV3Plus
+        encoder = config['model'].get('encoder_name', 'resnet101')
+        print(f"Initializing DeepLabV3+ with {encoder} encoder...")
+        model = DeepLabV3Plus(num_classes=config['model']['num_classes'], encoder_name=encoder)
+    elif model_name == "unetplusplus":
+        from src.models.deeplabv3 import UNetPlusPlus
+        encoder = config['model'].get('encoder_name', 'efficientnet-b4')
+        print(f"Initializing UNet++ with {encoder} encoder...")
+        model = UNetPlusPlus(num_classes=config['model']['num_classes'], encoder_name=encoder)
+    elif model_name == "mask2former":
+        from src.models.mask2former import Mask2FormerHF
+        repo = config['model'].get('pretrained_repo', "facebook/mask2former-swin-tiny-cityscapes-semantic")
+        print(f"Initializing Mask2Former ({repo})...")
+        model = Mask2FormerHF(num_classes=config['model']['num_classes'], pretrained_repo=repo)
+    elif model_name == "dinov2":
+        from src.models.dinov2 import DinoV2Seg
+        variant = config['model'].get('encoder_name', 'dinov2_vits14')
+        head_type = config['model'].get('head_type', 'simple')
+        print(f"Initializing DINOv2 Segmentation ({variant}) with {head_type} head...")
+        model = DinoV2Seg(num_classes=config['model']['num_classes'], model_type=variant, head_type=head_type)
     else:
-        raise ValueError(f"Unknown model name: {config['model']['name']}")
+        # Fallback
+        print(f"Initializing UNet (fallback for unknown model: {model_name})...")
+        model = UNet(n_channels=3, n_classes=config['model']['num_classes'])
 
     # Trainer
     trainer = Trainer(model, train_loader, val_loader, config)

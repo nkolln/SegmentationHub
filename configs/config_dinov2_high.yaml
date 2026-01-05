@@ -1,0 +1,62 @@
+project_name: "paintable-surface-segmentation"
+experiment_name: "dinov2s_4_aspp_770px_v1"
+
+model:
+  name: "dinov2"
+  num_classes: 4
+  pretrained: true
+  encoder_name: "dinov2_vits14" # ViT-Base (768 embed dim)
+  head_type: "aspp"           # ASPP head for multi-scale facade features
+
+training:
+  batch_size: 2               # Adjust based on VRAM (Base + 770px is heavy)
+  gradient_accumulation_steps: 8 # Effective batch size = 16
+  num_epochs: 100 
+  learning_rate: 0.00005      # 5e-5
+  max_lr: 0.0002              # 2e-4
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "onecycle"
+  warmup_ratio: 0.1
+  seed: 42
+  use_amp: false               # Essential for high resolution
+  early_stopping_patience: 20
+  
+  # Encoder freezing
+  freeze_encoder: true           
+  unfreeze_epoch: 10          # Freeze longer to stabilize ASPP head
+  encoder_lr_mult: 0.1         
+
+  use_tta: false               # Enable TTA for 0.8+ IoU goal
+  tta_every_n_epochs: 5
+
+loss:
+  cross_entropy: 1.0 # Standard CE weight
+  dice: 1.0          # Dice loss weight
+  focal:
+    weight: 0.0      # Set to > 0 to enable
+    alpha: 0.25
+    gamma: 2.0
+  boundary: 0.1      # Boundary loss weight
+  label_smoothing: 0.1
+  ignore_index: 255
+
+data:
+  root_dir: "data"
+  sources: ["base", "extended"]
+  image_size: 770             # 14 * 55 = 770 (DINOv2 requirement)
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  num_workers: 0
+
+logging:
+  use_wandb: true
+  log_every_n_steps: 1
+  save_checkpoint_every_n_epochs: 5
+  output_dir: "outputs/dinov2"
+
+monitoring:
+  track_gradients: true
+  gradient_log_frequency: 10
+  visualize_predictions_every_n_epochs: 5

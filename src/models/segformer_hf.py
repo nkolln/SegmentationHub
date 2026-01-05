@@ -6,7 +6,7 @@ class SegformerHF(nn.Module):
     """
     Segformer model using HuggingFace Transformers.
     """
-    def __init__(self, num_classes, pretrained_repo="nvidia/segformer-b3-finetuned-ade-512-512"):
+    def __init__(self, num_classes, pretrained_repo="nvidia/mit-b0"):
         super().__init__()
         self.num_classes = num_classes
         

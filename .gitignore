@@ -6,3 +6,12 @@
 *.xml
 *.zip
 /wandb
+*.pth
+*.pt
+*.txt
+*.pkl
+/outputs
+*.pth
+*.pt
+*.txt
+*.pkl
