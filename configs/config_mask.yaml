@@ -1,5 +1,5 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "mask2formerl4_og_clamp_main"
+experiment_name: "mask2formerl4_new_head_clamp_main"
 
 model:
   name: "mask2former" # Options: unet_viable, segformer_hf, mask2former, dinov2
@@ -17,7 +17,7 @@ training:
   max_lr: 0.0005
   weight_decay: 0.05
   optimizer: "adamw"
-  scheduler: "onecycle"1
+  scheduler: "onecycle"
   warmup_ratio: 0.1
   seed: 42
   use_amp: true # Transformer-based models benefit greatly from AMP

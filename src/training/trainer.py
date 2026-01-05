@@ -224,16 +224,25 @@ class Trainer:
             # Forward pass with mixed precision
             if self.use_amp:
                 with autocast('cuda'):
-                    outputs = self.model(images)
-                    
-                    # Handle Aux Output
-                    if isinstance(outputs, tuple):
-                        seg_logits, count_pred = outputs
+                    # Check if model handles labels internally (like Mask2Former)
+                    if hasattr(self.model, "forward") and "labels" in self.model.forward.__code__.co_varnames:
+                        outputs = self.model(images, labels=masks.long())
                     else:
-                        seg_logits = outputs
-                        count_pred = None
-                        
-                    loss = self.criterion(seg_logits, masks.long())
+                        outputs = self.model(images)
+                    
+                    # Handle loss extraction
+                    if isinstance(outputs, dict) or hasattr(outputs, "loss"):
+                        loss = outputs.loss
+                        seg_logits = outputs # Keep for metrics if needed
+                        count_pred = None # Mask2Former doesn't naturally have a counting head here
+                    else:
+                        # Handle Aux Output
+                        if isinstance(outputs, tuple):
+                            seg_logits, count_pred = outputs
+                        else:
+                            seg_logits = outputs
+                            count_pred = None
+                        loss = self.criterion(seg_logits, masks.long())
                     
                     if self.use_counting_loss and count_pred is not None and counts is not None:
                         count_loss = self.counting_criterion(count_pred, counts)
@@ -245,16 +254,23 @@ class Trainer:
                 self.scaler.scale(loss).backward()
             else:
                 # Standard forward/backward
-                outputs = self.model(images)
-                
-                # Handle Aux Output
-                if isinstance(outputs, tuple):
-                    seg_logits, count_pred = outputs
+                if hasattr(self.model, "forward") and "labels" in self.model.forward.__code__.co_varnames:
+                    outputs = self.model(images, labels=masks.long())
                 else:
+                    outputs = self.model(images)
+                
+                if isinstance(outputs, dict) or hasattr(outputs, "loss"):
+                    loss = outputs.loss
                     seg_logits = outputs
                     count_pred = None
-                    
-                loss = self.criterion(seg_logits, masks.long())
+                else:
+                    # Handle Aux Output
+                    if isinstance(outputs, tuple):
+                        seg_logits, count_pred = outputs
+                    else:
+                        seg_logits = outputs
+                        count_pred = None
+                    loss = self.criterion(seg_logits, masks.long())
                 
                 if self.use_counting_loss and count_pred is not None and counts is not None:
                     count_loss = self.counting_criterion(count_pred, counts)
@@ -344,18 +360,39 @@ class Trainer:
                 if do_tta:
                     outputs = self._tta_inference(images)
                 else:
-                    outputs = self.model(images)
+                    # Check if model handles labels internally (like Mask2Former)
+                    if hasattr(self.model, "forward") and "labels" in self.model.forward.__code__.co_varnames:
+                        outputs = self.model(images, labels=masks.long())
+                    else:
+                        outputs = self.model(images)
                 
-                if isinstance(outputs, tuple):
-                    outputs, pred_count = outputs
-                else:
-                    pred_count = None
+                # Handle loss and logits extraction
+                if isinstance(outputs, dict) or hasattr(outputs, "loss"):
+                    # For Mask2Former, we need to post-process to get semantic maps
+                    if hasattr(self.model, "post_process"):
+                        target_sizes = [(images.shape[-2], images.shape[-1])] * images.shape[0]
+                        processed = self.model.post_process(outputs, target_sizes=target_sizes)
+                        # processed is a list of (H, W) tensors
+                        preds = torch.stack(processed).to(self.device)
+                    else:
+                        # Fallback if no post_process method (though Mask2FormerHF has it)
+                        preds = torch.argmax(outputs.logits, dim=1) # Simplified
                     
-                loss = self.criterion(outputs, masks.long())
+                    # Extract loss
+                    loss = getattr(outputs, "loss", torch.tensor(0.0).to(self.device))
+                    pred_count = None
+                else:
+                    if isinstance(outputs, tuple):
+                        outputs, pred_count = outputs
+                    else:
+                        pred_count = None
+                        
+                    loss = self.criterion(outputs, masks.long())
+                    preds = torch.argmax(outputs, dim=1)
+
                 val_loss += loss.item()
                 
                 # Update IoU metric
-                preds = torch.argmax(outputs, dim=1)
                 self.iou_metric.update(preds, masks)
                 self.conf_matrix.update(preds, masks)
                 

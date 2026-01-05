@@ -36,14 +36,22 @@ class SegmentationDataset(Dataset):
         
         image = np.array(Image.open(image_path).convert("RGB"))
         # Mask is usually single channel
-        mask = np.array(Image.open(mask_path))
-        mask = mask.astype(np.int64) - 1
-        # mask = np.where((mask == 1), 1, mask)
-        # mask = np.where((mask == 9) | (mask == 2) | (mask == 7), 2, mask)
-        # mask = np.where(mask>2, 3, mask)
+        mask = np.array(Image.open(mask_path)).astype(np.int64)
         
-        # Clip to ensure no negative values just in case (e.g. if 0 existed)
-        mask = np.clip(mask, 0, None)
+        # Apply class mapping if provided
+        if self.class_mapping:
+            new_mask = np.zeros_like(mask)
+            for src_cls, tgt_cls in self.class_mapping.items():
+                new_mask[mask == int(src_cls)] = int(tgt_cls)
+            mask = new_mask
+        else:
+            # Default behavior if no mapping: assume 1-indexed and map 0 to ignore_index
+            # This is safer than the previous -1 shift and clip
+            ignore_index = 255
+            new_mask = np.full_like(mask, ignore_index)
+            mask_indices = mask > 0
+            new_mask[mask_indices] = mask[mask_indices] - 1
+            mask = new_mask
 
         # Parse XML for window count
         window_count = 0.0
