@@ -25,7 +25,7 @@ class Trainer:
     Trainer class for managing the training and validation loops.
     Supports encoder freezing with gradual unfreezing.
     """
-    def __init__(self, model, train_loader, val_loader, config):
+    def __init__(self, model, train_loader, val_loader, config, run_name=None):
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -86,7 +86,7 @@ class Trainer:
              self.use_counting_loss = False
              self.counting_loss_weight = 0.0
             
-        self.logger = Logger(config)
+        self.logger = Logger(config, run_name=run_name)
         self.global_step = 0
         
         # Metrics

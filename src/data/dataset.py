@@ -84,6 +84,8 @@ class SegmentationDataset(Dataset):
                 files = all_files[:split_idx]
             elif self.split == 'val':
                 files = all_files[split_idx:]
+            elif self.split == 'all':
+                files = all_files
             else:
                 files = all_files # fallback/test
                 

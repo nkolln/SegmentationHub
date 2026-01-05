@@ -5,14 +5,14 @@ class Logger:
     """
     Logger class for tracking experiment progress.
     """
-    def __init__(self, config):
+    def __init__(self, config, run_name=None):
         self.config = config
         self.use_wandb = config['logging']['use_wandb']
         
         if self.use_wandb:
             wandb.init(
                 project=config['project_name'],
-                name=config['experiment_name'],
+                name=run_name if run_name else config['experiment_name'],
                 config=config
             )
 
