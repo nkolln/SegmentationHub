@@ -10,3 +10,8 @@
 *.pt
 *.txt
 *.pkl
+/outputs
+*.pth
+*.pt
+*.txt
+*.pkl
