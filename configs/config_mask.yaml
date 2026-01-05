@@ -1,9 +1,9 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "mask2former_tiny_test_4class"
+experiment_name: "mask2former_t_4class_og"
 
 model:
   name: "mask2former" # Options: unet_viable, segformer_hf, mask2former, dinov2
-  num_classes: 12
+  num_classes: 4
   pretrained: true
   encoder_name: "swin-tiny"  # Backbone variant
   #pretrained_repo: "facebook/mask2former-swin-large-cityscapes-semantic"
@@ -13,9 +13,9 @@ training:
   batch_size: 2 # Mask2Former is memory intensive
   gradient_accumulation_steps: 4 # Effective Batch Size = 8
   num_epochs: 80 
-  learning_rate: 0.00005 # Dropped from 1e-4 for stability
-  max_lr: 0.0002 # Reduced from 5e-4 to avoid "frying" pretrained weights
-  weight_decay: 0.01 # Slightly lower WD for Swin-Tiny
+  learning_rate: 0.0001
+  max_lr: 0.0005
+  weight_decay: 0.05
   optimizer: "adamw"
   scheduler: "onecycle"
   warmup_ratio: 0.1
@@ -25,17 +25,17 @@ training:
   # Encoder freezing options
   freeze_encoder: true           
   unfreeze_epoch: 5
-  encoder_lr_mult: 0.1 # Reduced from 0.5 to be MUCH gentler on the backbone
+  encoder_lr_mult: 0.5
   use_tta: false # Keep TTA enabled for best metrics
 
 loss:
-  cross_entropy: 1.0 # Standard CE weight
-  dice: 1.0          # Dice loss weight
+  cross_entropy: 0.5 # Reverted to match old run defaults
+  dice: 0.5          # Reverted to match old run defaults
   focal:
-    weight: 0.0      # Set to > 0 to enable
+    weight: 0.0      # Disabled to match old run
     alpha: 0.25
     gamma: 2.0
-  boundary: 0.1      # Boundary loss weight
+  boundary: 0.0      # Disabled to match old run
   label_smoothing: 0.1
   ignore_index: 255
 
