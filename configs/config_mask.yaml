@@ -10,8 +10,8 @@ model:
   # pretrained_repo: "facebook/mask2former-swin-tiny-cityscapes-semantic"
 
 training:
-  batch_size: 2 # Mask2Former is memory intensive
-  gradient_accumulation_steps: 4 # Effective Batch Size = 8
+  batch_size: 8 # Mask2Former is memory intensive
+  gradient_accumulation_steps: 1 # Effective Batch Size = 8
   num_epochs: 80 
   learning_rate: 0.0001
   max_lr: 0.0005
@@ -24,8 +24,8 @@ training:
   early_stopping_patience: 15
   # Encoder freezing options
   freeze_encoder: true           
-  unfreeze_epoch: 5
-  encoder_lr_mult: 0.5
+  unfreeze_epoch: 8
+  encoder_lr_mult: 0.3
   use_tta: false # Keep TTA enabled for best metrics
 
 loss:
