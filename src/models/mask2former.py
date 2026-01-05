@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers import Mask2FormerForUniversalSegmentation, Mask2FormerImageProcessor
 
 class Mask2FormerHF(nn.Module):
@@ -43,13 +44,16 @@ class Mask2FormerHF(nn.Module):
             align_corners=False
         )
         
-        # Compute final per-pixel logits: (B, num_classes, H, W)
-        # This is a simplified version of the Mask2Former inference logic
-        # Instead of returning probabilities (which squashes gradients), 
-        # we return log-probabilities which act as safer logits for CE/Dice loss.
-        probs = torch.einsum("bqc,bqhw->bchw", mask_cls_logits.softmax(-1)[:, :, :-1], mask_pred_logits.sigmoid())
+        # For stability, we use log_softmax on class logits and log_sigmoid on mask logits
+        # mask_cls_logits: (B, Q, C+1) -> (B, Q, C)
+        mask_cls_probs = F.softmax(mask_cls_logits, dim=-1)[:, :, :-1] # (B, Q, C)
+        mask_pred_probs = mask_pred_logits.sigmoid() # (B, Q, H, W)
         
-        # Add small epsilon to avoid log(0)
-        logits = torch.log(probs + 1e-8)
+        # Compute final per-pixel probabilities: (B, C, H, W)
+        probs = torch.einsum("bqc,bqhw->bchw", mask_cls_probs, mask_pred_probs)
+        
+        # Clip probabilities to avoid log(0) and log(1) issues, then convert to logits
+        probs = torch.clamp(probs, min=1e-8, max=1.0 - 1e-8)
+        logits = torch.log(probs)
         
         return logits

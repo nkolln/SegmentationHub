@@ -1,0 +1,60 @@
+project_name: "paintable-surface-segmentation"
+experiment_name: "mask2former_large_test_4class_recreated"
+
+model:
+  name: "mask2former"
+  num_classes: 4
+  pretrained: true
+  encoder_name: "swin-large"
+  pretrained_repo: "facebook/mask2former-swin-large-cityscapes-semantic"
+
+training:
+  batch_size: 2
+  gradient_accumulation_steps: 4
+  num_epochs: 80
+  learning_rate: 0.00005
+  max_lr: 0.0002
+  weight_decay: 0.05
+  optimizer: "adamw"
+  scheduler: "onecycle"
+  warmup_ratio: 0.1
+  seed: 42
+  use_amp: true
+  early_stopping_patience: 15
+  
+  # Encoder freezing options
+  freeze_encoder: true           
+  unfreeze_epoch: 5
+  encoder_lr_mult: 0.1
+  use_tta: true 
+
+loss:
+  cross_entropy: 1.0 # Combined type standard
+  dice: 1.0          
+  focal:
+    weight: 1.0
+    alpha: 0.25
+    gamma: 2.0
+  boundary: 0.1
+  label_smoothing: 0.1
+  ignore_index: 255
+
+data:
+  root_dir: "data"
+  sources: ["base", "extended"]
+  image_size: 512
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  num_workers: 0
+
+logging:
+  use_wandb: true
+  log_every_n_steps: 10
+  save_checkpoint_every_n_epochs: 5
+  output_dir: "outputs/mask2former"
+
+monitoring:
+  track_gradients: true
+  gradient_log_frequency: 10
+  visualize_predictions_every_n_epochs: 5

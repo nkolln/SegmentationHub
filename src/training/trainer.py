@@ -123,6 +123,7 @@ class Trainer:
         
         # Early stopping
         self.early_stopping_patience = config['training'].get('early_stopping_patience', 10)
+        self.max_grad_norm = config['training'].get('max_grad_norm', 1.0) # Default to 1.0
         self.best_val_iou = 0.0
         self.patience_counter = 0
         self.should_stop = False
@@ -270,9 +271,14 @@ class Trainer:
                 
                 # Optimizer step with mixed precision support
                 if self.use_amp:
+                    # Unscale gradients before clipping
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                    
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                 else:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                     self.optimizer.step()
                 
                 self.optimizer.zero_grad()
