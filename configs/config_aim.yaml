@@ -1,0 +1,32 @@
+project_name: "paintable-surface-segmentation"
+experiment_name: "aim_base_active_learning"
+
+model:
+  name: "aim"
+  num_classes: 12
+  variant: "aim-base"
+  pretrained: true
+
+training:
+  batch_size: 4
+  num_epochs: 50
+  learning_rate: 0.00005
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "cosine"
+  seed: 42
+  use_amp: true
+
+data:
+  root_dir: "data"
+  sources: ["base", "extended"]
+  image_size: 224 # ViT-based models usually prefer 224 or 384
+  train_split: 0.8
+  val_split: 0.2
+  num_workers: 4
+
+logging:
+  use_wandb: true
+  log_every_n_steps: 10
+  save_checkpoint_every_n_epochs: 5
+  output_dir: "outputs/aim_model"

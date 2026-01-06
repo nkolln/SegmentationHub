@@ -44,6 +44,15 @@ def create_model(config):
         head_type = config['model'].get('head_type', 'simple')
         print(f"Initializing DINOv2 Segmentation ({variant}) with {head_type} head...")
         model = DinoV2Seg(num_classes=config['model']['num_classes'], model_type=variant, head_type=head_type)
+    elif model_name == "aim":
+        from src.models.aim import AIMSegmentationModel
+        variant = config['model'].get('variant', 'aim-base')
+        print(f"Initializing AIM Segmentation ({variant})...")
+        model = AIMSegmentationModel(
+            num_classes=config['model']['num_classes'], 
+            model_type=variant,
+            image_size=config['data']['image_size']
+        )
     else:
         from src.models.unet_baseline import UNet
         print(f"Initializing UNet (fallback for unknown model: {model_name})...")
