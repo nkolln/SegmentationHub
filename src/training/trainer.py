@@ -106,11 +106,17 @@ class Trainer:
             # Group 0: Decoder, Group 1: Encoder
             max_lrs = [max_lr_base, max_lr_base * self.encoder_lr_mult]
             
+            # Correctly handle steps_per_epoch for gradient accumulation
+            accumulation_steps = config['training'].get('gradient_accumulation_steps', 1)
+            steps_per_epoch = len(train_loader) // accumulation_steps
+            if len(train_loader) % accumulation_steps != 0:
+                steps_per_epoch += 1
+
             self.scheduler = OneCycleLR(
                 self.optimizer,
                 max_lr=max_lrs,
                 epochs=config['training']['num_epochs'],
-                steps_per_epoch=len(train_loader),
+                steps_per_epoch=steps_per_epoch,
                 pct_start=config['training'].get('warmup_ratio', 0.3),
                 anneal_strategy='cos'
             )
@@ -303,11 +309,12 @@ class Trainer:
                 else:
                     self.optimizer.step()
                 
-                self.optimizer.zero_grad()
-                
                 # Step scheduler per batch if OneCycleLR
+                # CRITICAL: Step scheduler AFTER optimizer.step()
                 if self.step_per_batch:
                     self.scheduler.step()
+
+                self.optimizer.zero_grad()
                 
                 # Logging (log the accumulated/actual loss, so multiply back)
                 if self.global_step % self.config['logging'].get('log_every_n_steps', 10) == 0:
@@ -412,7 +419,15 @@ class Trainer:
                         n_gt = float(cv2.connectedComponents(gt_wins)[0] - 1)
                         
                     # Predicted count from Segmentation Head (connected components)
+                    # Predicted count from Segmentation Head (connected components)
+                    # Filter small noise artifacts to improve WinErr stability
                     pred_wins = (batch_preds_np[i] == 2).astype(np.uint8)
+                    
+                    # Optional: Morphological noise removal
+                    if np.sum(pred_wins) > 0:
+                        kernel = np.ones((3, 3), np.uint8)
+                        pred_wins = cv2.morphologyEx(pred_wins, cv2.MORPH_OPEN, kernel)
+
                     n_pred_mask = float(cv2.connectedComponents(pred_wins)[0] - 1)
                     
                     # Error for Segmentation Mask

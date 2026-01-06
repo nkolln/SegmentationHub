@@ -6,17 +6,32 @@ class Mask2FormerHF(nn.Module):
     """
     Mask2Former model using HuggingFace Transformers.
     """
-    def __init__(self, num_classes, pretrained_repo="facebook/mask2former-swin-tiny-cityscapes-semantic"):
+    def __init__(self, num_classes, config=None):
         super().__init__()
         self.num_classes = num_classes
         
+        pretrained_repo = config['model'].get('pretrained_repo', "facebook/mask2former-swin-tiny-cityscapes-semantic") if config else "facebook/mask2former-swin-tiny-cityscapes-semantic"
+        num_queries = config['model'].get('num_queries', 100) if config else 100
+
         # Load model and processor
         self.model = Mask2FormerForUniversalSegmentation.from_pretrained(
             pretrained_repo, 
-            num_queries=100, 
+            num_queries=num_queries, 
             num_labels=num_classes, 
             ignore_mismatched_sizes=True
         )
+
+        # Inject custom loss weights from config if available
+        if config and 'loss' in config:
+            # Mask2Former uses specific weight names in its configuration
+            # Map our config names to HF names
+            # Default HF: class_weight=2.0, mask_weight=5.0, dice_weight=5.0
+            self.model.config.class_weight = float(config['loss'].get('class_weight', 2.0))
+            self.model.config.mask_weight = float(config['loss'].get('mask_weight', 20.0))
+            self.model.config.dice_weight = float(config['loss'].get('dice_weight', 1.0))
+            
+            print(f"🎯 Mask2Former Loss Weights Injected: Class={self.model.config.class_weight}, Mask={self.model.config.mask_weight}, Dice={self.model.config.dice_weight}")
+
         self.processor = Mask2FormerImageProcessor.from_pretrained(pretrained_repo)
         
     def forward(self, x, labels=None):

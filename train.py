@@ -36,9 +36,8 @@ def create_model(config):
         model = UNetPlusPlus(num_classes=config['model']['num_classes'], encoder_name=encoder)
     elif model_name == "mask2former":
         from src.models.mask2former import Mask2FormerHF
-        repo = config['model'].get('pretrained_repo', "facebook/mask2former-swin-tiny-cityscapes-semantic")
-        print(f"Initializing Mask2Former ({repo})...")
-        model = Mask2FormerHF(num_classes=config['model']['num_classes'], pretrained_repo=repo)
+        print(f"Initializing Mask2Former from config...")
+        model = Mask2FormerHF(num_classes=config['model']['num_classes'], config=config)
     elif model_name == "dinov2":
         from src.models.dinov2 import DinoV2Seg
         variant = config['model'].get('encoder_name', 'dinov2_vits14')
@@ -58,6 +57,8 @@ def run_fold(fold, config, args):
     sources = config['data'].get('sources', ['base'])
     num_folds = config['data'].get('k_folds', None)
     class_mapping = config['data'].get('class_mapping', None)
+    seed = config['training'].get('seed', 42)
+    test_split = config['data'].get('test_split', 0.0)
 
     train_dataset = SegmentationDataset(
         root_dir=config['data']['root_dir'], 
@@ -66,7 +67,9 @@ def run_fold(fold, config, args):
         sources=sources,
         fold=fold,
         num_folds=num_folds,
-        class_mapping=class_mapping
+        class_mapping=class_mapping,
+        seed=seed,
+        test_split=test_split
     )
     val_dataset = SegmentationDataset(
         root_dir=config['data']['root_dir'], 
@@ -75,7 +78,9 @@ def run_fold(fold, config, args):
         sources=sources,
         fold=fold,
         num_folds=num_folds,
-        class_mapping=class_mapping
+        class_mapping=class_mapping,
+        seed=seed,
+        test_split=test_split
     )
 
     train_loader = DataLoader(
@@ -99,8 +104,10 @@ def run_fold(fold, config, args):
     
     if args.dry_run:
         print(f"Dry run for fold {fold} complete.")
+        return None
     else:
         trainer.train()
+        return trainer.best_val_iou
 
 def main():
     parser = argparse.ArgumentParser(description="Train Segmentation Model")
@@ -123,8 +130,33 @@ def main():
         run_fold(args.fold, config, args)
     elif num_folds > 1:
         # Run all folds in a loop
+        fold_results = []
         for fold in range(num_folds):
-            run_fold(fold, config, args)
+            best_iou = run_fold(fold, config, args)
+            if best_iou is not None:
+                fold_results.append(best_iou)
+        
+        if fold_results:
+            avg_iou = sum(fold_results) / len(fold_results)
+            import numpy as np
+            std_iou = np.std(fold_results)
+            print(f"\n" + "="*30)
+            print(f"🏁 K-FOLD RESULTS COMPLETED")
+            print(f"Average Best IoU: {avg_iou:.4f} ± {std_iou:.4f}")
+            print(f"Individual Folds: {[f'{r:.4f}' for r in fold_results]}")
+            print("="*30)
+            
+            # Optional: Log aggregate to WandB if it's overall active
+            if config['logging'].get('use_wandb', False):
+                import wandb
+                # We initialize a separate run for aggregation summary
+                wandb.init(project=config['project_name'], name=f"{config['experiment_name']}_summary")
+                wandb.log({
+                    'kfold_avg_iou': avg_iou,
+                    'kfold_std_iou': std_iou,
+                    'kfold_results': fold_results
+                })
+                wandb.finish()
     else:
         # Standard training (no folds or k_folds=1)
         run_fold(0, config, args)

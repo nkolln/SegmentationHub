@@ -8,7 +8,7 @@ class SegmentationDataset(Dataset):
     """
     Custom Dataset for Semantic Segmentation.
     """
-    def __init__(self, root_dir, split='train', transform=None, class_mapping=None, sources=['base'], fold=0, num_folds=None):
+    def __init__(self, root_dir, split='train', transform=None, class_mapping=None, sources=['base'], fold=0, num_folds=None, seed=42, test_split=0.0):
         """
         Args:
             root_dir (str): Root directory of the dataset (e.g. data/)
@@ -18,6 +18,8 @@ class SegmentationDataset(Dataset):
             sources (list): List of source directories in root_dir/raw/ to load from.
             fold (int): Current fold index (0 to num_folds-1).
             num_folds (int): Total number of folds for K-fold validation. If None, uses default 80/20 split.
+            seed (int): Seed for deterministic shuffling.
+            test_split (float): Fraction of data to reserve as a hold-out test set.
         """
         self.root_dir = root_dir
         self.split = split
@@ -26,6 +28,8 @@ class SegmentationDataset(Dataset):
         self.sources = sources
         self.fold = fold
         self.num_folds = num_folds
+        self.seed = seed
+        self.test_split = test_split
         
         self.images = []
         self.masks = []
@@ -88,30 +92,47 @@ class SegmentationDataset(Dataset):
             # Find all jpg images
             all_files = sorted([f for f in os.listdir(base_path) if f.endswith('.jpg')])
             
-            # Simple deterministic split
-            # We split PER SOURCE to ensure balanced distribution
-            if self.num_folds is not None:
-                # K-fold splitting
-                fold_size = len(all_files) // self.num_folds
-                val_start = self.fold * fold_size
-                # Ensure the last fold takes any remainder
-                val_end = (self.fold + 1) * fold_size if self.fold < self.num_folds - 1 else len(all_files)
+            # Deterministic Shuffle
+            import random
+            random.seed(self.seed)
+            random.shuffle(all_files)
+            
+            # 1. First, separate hold-out test set if requested
+            if self.test_split > 0:
+                test_size = int(len(all_files) * self.test_split)
+                test_files = all_files[:test_size]
+                remaining_files = all_files[test_size:]
                 
-                if self.split == 'train':
-                    files = all_files[:val_start] + all_files[val_end:]
-                elif self.split == 'val':
-                    files = all_files[val_start:val_end]
+                if self.split == 'test':
+                    files = test_files
+                    print(f"  > Source '{source}': reserved {len(test_files)} files as hold-out test set.")
                 else:
-                    files = all_files # fallback/test
-            else:
-                # Default 80/20 split
-                split_idx = int(0.8 * len(all_files))
-                if self.split == 'train':
-                    files = all_files[:split_idx]
-                elif self.split == 'val':
-                    files = all_files[split_idx:]
+                    all_files = remaining_files
+            
+            # 2. Split remaining data for K-Fold or Train/Val
+            if self.split != 'test':
+                if self.num_folds is not None:
+                    # K-fold splitting on remaining files
+                    fold_size = len(all_files) // self.num_folds
+                    val_start = self.fold * fold_size
+                    # Ensure the last fold takes any remainder
+                    val_end = (self.fold + 1) * fold_size if self.fold < self.num_folds - 1 else len(all_files)
+                    
+                    if self.split == 'train':
+                        files = all_files[:val_start] + all_files[val_end:]
+                    elif self.split == 'val':
+                        files = all_files[val_start:val_end]
+                    else:
+                        files = all_files # fallback
                 else:
-                    files = all_files # fallback/test
+                    # Default 80/20 split on remaining files
+                    split_idx = int(0.8 * len(all_files))
+                    if self.split == 'train':
+                        files = all_files[:split_idx]
+                    elif self.split == 'val':
+                        files = all_files[split_idx:]
+                    else:
+                        files = all_files # fallback
                 
             for f in files:
                 img_path = os.path.join(base_path, f)
