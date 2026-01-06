@@ -44,7 +44,8 @@ class SegmentationDataset(Dataset):
         
         # Apply class mapping if provided
         if self.class_mapping:
-            new_mask = np.zeros_like(mask)
+            ignore_index = 255
+            new_mask = np.full_like(mask, ignore_index)
             for src_cls, tgt_cls in self.class_mapping.items():
                 new_mask[mask == int(src_cls)] = int(tgt_cls)
             mask = new_mask
