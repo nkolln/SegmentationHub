@@ -1,17 +1,17 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "dinov2s_4_aspp_770px_v1"
+experiment_name: "dinov2l12_multiscale_770px_v1"
 
 model:
   name: "dinov2"
-  num_classes: 4
+  num_classes: 12
   pretrained: true
-  encoder_name: "dinov2_vits14" # ViT-Base (768 embed dim)
-  head_type: "aspp"           # ASPP head for multi-scale facade features
+  encoder_name: "dinov2_vitl14" # ViT-Base (768 embed dim)
+  head_type: "multiscale"           # ASPP head for multi-scale facade features
 
 training:
   batch_size: 2               # Adjust based on VRAM (Base + 770px is heavy)
   gradient_accumulation_steps: 8 # Effective batch size = 16
-  num_epochs: 100 
+  num_epochs: 50
   learning_rate: 0.00005      # 5e-5
   max_lr: 0.0002              # 2e-4
   weight_decay: 0.01
