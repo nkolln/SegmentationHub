@@ -85,64 +85,74 @@ class MultiScaleHead(nn.Module):
         return self.decode(x)
 
 class DinoV2Seg(nn.Module):
-    """
-    Segmentation model using DINOv2 backbone with configurable heads.
-    """
-    def __init__(self, num_classes, model_type='dinov2_vits14', head_type='simple'):
+    def __init__(self, num_classes, model_type='dinov2_vitb14', 
+                 head_type='multiscale', freeze_backbone=True):
         super().__init__()
         self.num_classes = num_classes
         self.head_type = head_type
         
-        # Load DINOv2 from Torch Hub
-        print(f"Loading DINOv2 backbone: {model_type}...")
+        # Load backbone
         self.backbone = torch.hub.load('facebookresearch/dinov2', model_type)
+        self.patch_size = 14  # DINOv2 uses 14x14 patches
         
-        # Determine embedding dimension
-        if 'vits' in model_type:
-            embed_dim = 384
-        elif 'vitb' in model_type:
-            embed_dim = 768
-        elif 'vitl' in model_type:
-            embed_dim = 1024
-        else: # vitg
-            embed_dim = 1536
-            
-        self.embed_dim = embed_dim
-            
-        # Segmentation Head
-        print(f"Initializing Segmentation Head: {head_type}")
-        if head_type == 'aspp':
+        # Embedding dimensions
+        embed_dims = {
+            'dinov2_vits14': 384,
+            'dinov2_vitb14': 768,
+            'dinov2_vitl14': 1024,
+            'dinov2_vitg14': 1536
+        }
+        self.embed_dim = embed_dims.get(model_type, 768)
+        
+        # Segmentation head
+        if head_type == 'multiscale':
+            self.head = MultiScaleHead(self.embed_dim, num_classes)
+        elif head_type == 'aspp':
             self.head = nn.Sequential(
-                ASPP(embed_dim, 256),
-                nn.Conv2d(256, num_classes, kernel_size=1)
+                ASPP(self.embed_dim, 256),
+                nn.Conv2d(256, num_classes, 1)
             )
-        elif head_type == 'multiscale':
-             self.head = MultiScaleHead(embed_dim, num_classes)
-        else: # simple/baseline
+        else:
             self.head = nn.Sequential(
-                nn.Conv2d(embed_dim, 256, kernel_size=3, padding=1, bias=False),
+                nn.Conv2d(self.embed_dim, 256, 3, padding=1, bias=False),
                 nn.BatchNorm2d(256),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(256, num_classes, kernel_size=1)
+                nn.Conv2d(256, num_classes, 1)
             )
-
-    def forward(self, x):
+        
+        # Freeze backbone if requested
+        if freeze_backbone:
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+            print(f"✓ DINOv2 backbone frozen")
+    
+    def forward(self, x, labels=None):
         h, w = x.shape[2:]
         
+        # Extract features
         if self.head_type == 'multiscale':
-             # Get last 4 layers
-             features = self.backbone.get_intermediate_layers(x, n=4)
-             logits = self.head(features, h, w)
+            features = self.backbone.get_intermediate_layers(x, n=4)
+            logits = self.head(features, h, w)
         else:
-            # Get intermediate features (patch tokens) - single layer
-            features = self.backbone.get_intermediate_layers(x, n=1)[0] # (B, NumPatches, EmbedDim)
-            
-            # Reshape patches to spatial grid
-            ph, pw = h // 14, w // 14
-            features = features.permute(0, 2, 1).reshape(-1, features.shape[-1], ph, pw) # (B, C, PH, PW)
-            
-            # Apply head
+            features = self.backbone.get_intermediate_layers(x, n=1)[0]
+            ph, pw = h // self.patch_size, w // self.patch_size
+            features = features.permute(0, 2, 1).reshape(-1, self.embed_dim, ph, pw)
             logits = self.head(features)
         
-        # Final upsampling to original size
-        return F.interpolate(logits, size=(h, w), mode='bilinear', align_corners=False)
+        # Upsample to input size
+        logits = F.interpolate(logits, size=(h, w), mode='bilinear', align_corners=False)
+        
+        # # Return format matching Mask2Former interface
+        # output = {"logits": logits}
+        
+        # if labels is not None:
+        #     loss = F.cross_entropy(logits, labels, ignore_index=-1)
+        #     output["loss"] = loss
+            
+        return logits
+    
+    def unfreeze_backbone(self):
+        """Call this after initial training to fine-tune end-to-end"""
+        for param in self.backbone.parameters():
+            param.requires_grad = True
+        print("✓ DINOv2 backbone unfrozen for fine-tuning")

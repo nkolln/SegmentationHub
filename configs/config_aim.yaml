@@ -8,7 +8,8 @@ model:
   pretrained: true
 
 training:
-  batch_size: 4
+  batch_size: 2
+  gradient_accumulation_steps: 4
   num_epochs: 50
   learning_rate: 0.00005
   weight_decay: 0.01
@@ -16,6 +17,11 @@ training:
   scheduler: "cosine"
   seed: 42
   use_amp: true
+
+loss:
+  cross_entropy: 1.0
+  dice: 1.0
+  ignore_index: 255
 
 data:
   root_dir: "data"

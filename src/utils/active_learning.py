@@ -43,15 +43,37 @@ class ActiveLearningManager:
                         emb = self.model.backbone(images)
                     else:
                         emb = self.model(images)
-                        
+                    
+                    # Handle HuggingFace dictionary-like outputs (e.g. Mask2Former)
+                    if isinstance(emb, dict) or (hasattr(emb, 'to_dict') and not isinstance(emb, torch.Tensor)):
+                        # For Mask2Former, we want the global context/embeddings
+                        # If it has transformer_decoder_last_hidden_state, it's a good candidate
+                        if hasattr(emb, 'transformer_decoder_last_hidden_state'):
+                            emb = emb.transformer_decoder_last_hidden_state # (B, num_queries, hidden_dim)
+                        elif hasattr(emb, 'encoder_last_hidden_state'):
+                            emb = emb.encoder_last_hidden_state
+                        elif 'pixel_values' in emb: # Some models return pixel_values for some reason
+                            pass # Keep searching
+                            
                     # Flatten if necessary
-                    if len(emb.shape) > 2:
-                        emb = torch.nn.functional.adaptive_avg_pool2d(emb, (1, 1)).flatten(1)
+                    if isinstance(emb, torch.Tensor):
+                        if len(emb.shape) > 2:
+                            # If it's (B, N, C), average over N
+                            if len(emb.shape) == 3:
+                                emb = emb.mean(dim=1)
+                            else:
+                                emb = torch.nn.functional.adaptive_avg_pool2d(emb, (1, 1)).flatten(1)
+                    else:
+                        # Fallback for complex objects: use a simple pooling of the image if model failed to return tensor
+                        emb = torch.nn.functional.adaptive_avg_pool2d(images, (8, 8)).flatten(1)
                 else:
                     # Fallback or placeholder: use flattened images (not ideal but works for testing)
                     emb = torch.nn.functional.adaptive_avg_pool2d(images, (8, 8)).flatten(1)
                 
-                embeddings.append(emb.cpu().numpy())
+                if isinstance(emb, torch.Tensor):
+                    embeddings.append(emb.detach().cpu().numpy())
+                else:
+                    embeddings.append(emb) # Already a numpy array?
                 if fns:
                     filenames.extend(fns)
 
@@ -62,10 +84,6 @@ class ActiveLearningManager:
         Analyze dataset diversity using Coreset or similar.
         Returns indices of the most 'diverse' samples.
         """
-        from lightly.active_learning.scorers import Scorer
-        from lightly.active_learning.config import SelectionConfig
-        from lightly.active_learning.agents import ActiveLearningAgent
-        
         # Placeholder for complex active learning logic
         # In a real scenario, we'd use Coreset selection
         from sklearn.metrics import pairwise_distances

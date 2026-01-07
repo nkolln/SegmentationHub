@@ -220,7 +220,11 @@ class Trainer:
         
         for batch_idx, batch_data in enumerate(pbar):
             # Dataset returns 3 items?
-            if len(batch_data) == 3:
+            
+            if len(batch_data) == 4:
+                images, masks, counts, _ = batch_data
+                images, masks, counts = images.to(self.device), masks.to(self.device), counts.to(self.device)
+            elif len(batch_data) == 3:
                 images, masks, counts = batch_data
                 images, masks, counts = images.to(self.device), masks.to(self.device), counts.to(self.device)
             else:
@@ -238,10 +242,16 @@ class Trainer:
                         outputs = self.model(images)
                     
                     # Handle loss extraction
-                    if isinstance(outputs, dict) or hasattr(outputs, "loss"):
+                    if isinstance(outputs, dict):
+                        loss = outputs.get('loss')
+                        seg_logits = outputs.get('logits', outputs)
+                        count_pred = None
+                        if loss is None:
+                            loss = self.criterion(seg_logits, masks.long())
+                    elif hasattr(outputs, "loss"):
                         loss = outputs.loss
-                        seg_logits = outputs # Keep for metrics if needed
-                        count_pred = None # Mask2Former doesn't naturally have a counting head here
+                        seg_logits = getattr(outputs, "logits", outputs)
+                        count_pred = None
                     else:
                         # Handle Aux Output
                         if isinstance(outputs, tuple):
@@ -266,9 +276,15 @@ class Trainer:
                 else:
                     outputs = self.model(images)
                 
-                if isinstance(outputs, dict) or hasattr(outputs, "loss"):
+                if isinstance(outputs, dict):
+                    loss = outputs.get('loss')
+                    seg_logits = outputs.get('logits', outputs)
+                    count_pred = None
+                    if loss is None:
+                        loss = self.criterion(seg_logits, masks.long())
+                elif hasattr(outputs, "loss"):
                     loss = outputs.loss
-                    seg_logits = outputs
+                    seg_logits = getattr(outputs, "logits", outputs)
                     count_pred = None
                 else:
                     # Handle Aux Output
@@ -351,7 +367,10 @@ class Trainer:
         with torch.no_grad():
             vbar = tqdm(self.val_loader, desc=f"Validating Epoch {epoch}", leave=False)
             for batch_idx, batch_data in enumerate(vbar):
-                if len(batch_data) == 3:
+                if len(batch_data) == 4:
+                     images, masks, counts, _ = batch_data
+                     gt_counts = counts.to(self.device)
+                elif len(batch_data) == 3:
                      images, masks, counts = batch_data
                      gt_counts = counts.to(self.device)
                 else:
@@ -384,10 +403,18 @@ class Trainer:
                         preds = torch.stack(processed).to(self.device)
                     else:
                         # Fallback if no post_process method (though Mask2FormerHF has it)
-                        preds = torch.argmax(outputs.logits, dim=1) # Simplified
+                        logits = outputs.get('logits') if isinstance(outputs, dict) else getattr(outputs, 'logits', None)
+                        if logits is not None:
+                            preds = torch.argmax(logits, dim=1)
+                        else:
+                            # If it's just raw logits (though we checked for loss above)
+                            preds = torch.argmax(outputs, dim=1) if not isinstance(outputs, dict) else None
                     
                     # Extract loss
-                    loss = getattr(outputs, "loss", torch.tensor(0.0).to(self.device))
+                    if isinstance(outputs, dict):
+                        loss = outputs.get('loss', torch.tensor(0.0).to(self.device))
+                    else:
+                        loss = getattr(outputs, "loss", torch.tensor(0.0).to(self.device))
                     pred_count = None
                 else:
                     if isinstance(outputs, tuple):

@@ -40,10 +40,11 @@ class SegmentationDataset(Dataset):
 
     def __getitem__(self, idx):
         image_path = self.images[idx]
-        mask_path = self.masks[idx]
+        mask_path,refined_mask_path = self.masks[idx]
+
+        mask_path = np.random.choice([mask_path,refined_mask_path],p=[0.3,0.7])
         
         image = np.array(Image.open(image_path).convert("RGB"))
-        # Mask is usually single channel
         mask = np.array(Image.open(mask_path)).astype(np.int64)
         
         # Apply class mapping if provided
@@ -80,11 +81,13 @@ class SegmentationDataset(Dataset):
             image = augmented['image']
             mask = augmented['mask']
             
-        return image, mask, torch.tensor(window_count, dtype=torch.float32)
+        return image, mask, torch.tensor(window_count, dtype=torch.float32), image_path
         
     def _load_data(self):
         for source in self.sources:
             base_path = os.path.join(self.root_dir, 'raw', source)
+            refined_path = os.path.join(self.root_dir, 'refined_test', source)
+
             if not os.path.exists(base_path):
                 print(f"Warning: Source path not found: {base_path}. Skipping.")
                 continue
@@ -143,10 +146,17 @@ class SegmentationDataset(Dataset):
                 # Mask replaces .jpg with .png
                 mask_name = f.replace('.jpg', '.png')
                 mask_path = os.path.join(base_path, mask_name)
+                refined_mask_path = os.path.join(refined_path, mask_name)
                 
-                if os.path.exists(mask_path):
+                if os.path.exists(refined_mask_path) and os.path.exists(mask_path):
                     self.images.append(img_path)
-                    self.masks.append(mask_path)
+                    self.masks.append((mask_path,refined_mask_path))
+                elif os.path.exists(refined_mask_path):
+                    self.images.append(img_path)
+                    self.masks.append((refined_mask_path))
+                elif os.path.exists(mask_path):
+                    self.images.append(img_path)
+                    self.masks.append((mask_path))
             
             print(f"  > Source '{source}': found {len(all_files)} files, using {len(files)} for split '{self.split}'")
         
