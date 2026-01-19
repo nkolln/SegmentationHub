@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import DataLoader
 from src.utils.config import load_config
 from src.data.dataset import SegmentationDataset
-from src.data.transforms import get_train_transforms, get_val_transforms
+from src.data.transforms import get_train_transforms, get_val_transforms, get_robust_facade_transforms
 from src.models.segformer import Segformer
 from src.models.unet_baseline import UNet
 from src.models.unet_viable import ResNetUNet
@@ -44,6 +44,16 @@ def create_model(config):
         head_type = config['model'].get('head_type', 'simple')
         print(f"Initializing DINOv2 Segmentation ({variant}) with {head_type} head...")
         model = DinoV2Seg(num_classes=config['model']['num_classes'], model_type=variant, head_type=head_type)
+    elif model_name == "dinov3":
+        from src.models.dinov3 import DinoV3Seg
+        variant = config['model'].get('encoder_name', 'dinov3_vits14')
+        head_type = config['model'].get('head_type', 'simple')
+        print(f"Initializing DINOv3 Segmentation ({variant}) with {head_type} head...")
+        model = DinoV3Seg(num_classes=config['model']['num_classes'], model_type=variant, head_type=head_type)
+    elif model_name == "dinov3_m2f":
+        from src.models.dinov3_m2f import DINOv3Mask2Former
+        print(f"Initializing DINOv3 + Mask2Former Hybrid...")
+        model = DINOv3Mask2Former(num_classes=config['model']['num_classes'], config=config)
     elif model_name == "aim":
         from src.models.aim import AIMSegmentationModel
         variant = config['model'].get('variant', 'aim-base')
@@ -68,17 +78,29 @@ def run_fold(fold, config, args):
     class_mapping = config['data'].get('class_mapping', None)
     seed = config['training'].get('seed', 42)
     test_split = config['data'].get('test_split', 0.0)
+    
+    # Select transform pipeline
+    use_robust = config['data'].get('use_robust_augmentations', False)
+    if use_robust:
+        print("Using robust facade augmentations (shadows, weather, occlusions)")
+        train_transform = get_robust_facade_transforms(config['data']['image_size'])
+    else:
+        train_transform = get_train_transforms(config['data']['image_size'])
+    
+    # Refined mask setting
+    use_refined_masks = config['data'].get('use_refined_masks', True)
 
     train_dataset = SegmentationDataset(
         root_dir=config['data']['root_dir'], 
         split='train',
-        transform=get_train_transforms(config['data']['image_size']),
+        transform=train_transform,
         sources=sources,
         fold=fold,
         num_folds=num_folds,
         class_mapping=class_mapping,
         seed=seed,
-        test_split=test_split
+        test_split=test_split,
+        use_refined_masks=use_refined_masks
     )
     val_dataset = SegmentationDataset(
         root_dir=config['data']['root_dir'], 
@@ -89,7 +111,8 @@ def run_fold(fold, config, args):
         num_folds=num_folds,
         class_mapping=class_mapping,
         seed=seed,
-        test_split=test_split
+        test_split=test_split,
+        use_refined_masks=use_refined_masks
     )
 
     train_loader = DataLoader(

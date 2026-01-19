@@ -396,13 +396,18 @@ class Trainer:
                 # Handle loss and logits extraction
                 if isinstance(outputs, dict) or hasattr(outputs, "loss"):
                     # For Mask2Former, we need to post-process to get semantic maps
-                    if hasattr(self.model, "post_process"):
-                        target_sizes = [(images.shape[-2], images.shape[-1])] * images.shape[0]
+                    target_sizes = [(images.shape[-2], images.shape[-1])] * images.shape[0]
+                    
+                    if hasattr(self.model, "post_process_semantic_segmentation"):
+                        # New DINOv3-M2F style
+                        processed = self.model.post_process_semantic_segmentation(outputs, target_sizes=target_sizes)
+                        preds = torch.stack(processed).to(self.device)
+                    elif hasattr(self.model, "post_process"):
+                        # Legacy Mask2FormerHF style
                         processed = self.model.post_process(outputs, target_sizes=target_sizes)
-                        # processed is a list of (H, W) tensors
                         preds = torch.stack(processed).to(self.device)
                     else:
-                        # Fallback if no post_process method (though Mask2FormerHF has it)
+                        # Fallback if no post_process method
                         logits = outputs.get('logits') if isinstance(outputs, dict) else getattr(outputs, 'logits', None)
                         if logits is not None:
                             preds = torch.argmax(logits, dim=1)

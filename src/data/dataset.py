@@ -8,7 +8,7 @@ class SegmentationDataset(Dataset):
     """
     Custom Dataset for Semantic Segmentation.
     """
-    def __init__(self, root_dir, split='train', transform=None, class_mapping=None, sources=['base'], fold=0, num_folds=None, seed=42, test_split=0.0):
+    def __init__(self, root_dir, split='train', transform=None, class_mapping=None, sources=['base'], fold=0, num_folds=None, seed=42, test_split=0.0, use_refined_masks=True):
         """
         Args:
             root_dir (str): Root directory of the dataset (e.g. data/)
@@ -20,6 +20,7 @@ class SegmentationDataset(Dataset):
             num_folds (int): Total number of folds for K-fold validation. If None, uses default 80/20 split.
             seed (int): Seed for deterministic shuffling.
             test_split (float): Fraction of data to reserve as a hold-out test set.
+            use_refined_masks (bool): If True, use refined masks from refinement_test folder.
         """
         self.root_dir = root_dir
         self.split = split
@@ -30,6 +31,7 @@ class SegmentationDataset(Dataset):
         self.num_folds = num_folds
         self.seed = seed
         self.test_split = test_split
+        self.use_refined_masks = use_refined_masks
         
         self.images = []
         self.masks = []
@@ -40,9 +42,16 @@ class SegmentationDataset(Dataset):
 
     def __getitem__(self, idx):
         image_path = self.images[idx]
-        mask_path,refined_mask_path = self.masks[idx]
-
-        mask_path = np.random.choice([mask_path,refined_mask_path],p=[0.3,0.7])
+        try:
+            mask_path, refined_mask_path = self.masks[idx]
+            # Use refined masks if enabled, otherwise use original
+            if self.use_refined_masks:
+                mask_path = refined_mask_path
+            else:
+                mask_path = mask_path
+        except ValueError:
+            # Only one mask path available
+            mask_path = self.masks[idx]
         
         image = np.array(Image.open(image_path).convert("RGB"))
         mask = np.array(Image.open(mask_path)).astype(np.int64)
@@ -86,7 +95,7 @@ class SegmentationDataset(Dataset):
     def _load_data(self):
         for source in self.sources:
             base_path = os.path.join(self.root_dir, 'raw', source)
-            refined_path = os.path.join(self.root_dir, 'refined_test', source)
+            refined_path = os.path.join(self.root_dir, 'refinement_test', source)
 
             if not os.path.exists(base_path):
                 print(f"Warning: Source path not found: {base_path}. Skipping.")
@@ -146,17 +155,23 @@ class SegmentationDataset(Dataset):
                 # Mask replaces .jpg with .png
                 mask_name = f.replace('.jpg', '.png')
                 mask_path = os.path.join(base_path, mask_name)
-                refined_mask_path = os.path.join(refined_path, mask_name)
+                mask_name = mask_name.replace('.png', '_refined.png')
+                refined_mask_path = os.path.join(refined_path.replace('\extended', '').replace(r'\base', ''), mask_name)
+                print(refined_mask_path)
+                print(mask_path)
                 
                 if os.path.exists(refined_mask_path) and os.path.exists(mask_path):
                     self.images.append(img_path)
                     self.masks.append((mask_path,refined_mask_path))
+                    print(f"Found both mask and refined mask for {f}")
                 elif os.path.exists(refined_mask_path):
                     self.images.append(img_path)
                     self.masks.append((refined_mask_path))
+                    print(f"Found only refined mask for {f}")
                 elif os.path.exists(mask_path):
                     self.images.append(img_path)
                     self.masks.append((mask_path))
+                    print(f"Found only mask for {f}")
             
             print(f"  > Source '{source}': found {len(all_files)} files, using {len(files)} for split '{self.split}'")
         

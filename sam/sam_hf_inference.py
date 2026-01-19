@@ -112,6 +112,11 @@ def main():
     num_to_process = args.max_items if args.max_items else len(dataset)
     for i in tqdm(range(num_to_process), desc="Processing items"):
         image_np, mask_np, _, image_path = dataset[i]
+        item_name = os.path.basename(image_path).replace('.jpg', '')
+        mask_output_path = os.path.join(args.output_dir, f"{item_name}_refined.png")
+        if os.path.exists(mask_output_path):
+            print(f"Skipping {mask_output_path} as it already exists")
+            continue
         
         raw_image = Image.fromarray(image_np)
         w, h = raw_image.size

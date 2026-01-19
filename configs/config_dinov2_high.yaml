@@ -1,11 +1,11 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "dinov2s_12_multihead_770px_v1"
+experiment_name: "dinov3l_12_mh_robust"
 
 model:
-  name: "dinov2"
+  name: "dinov3"
   num_classes: 12
   pretrained: true
-  encoder_name: "dinov2_vits14"
+  encoder_name: "facebook/dinov3-vitl16-pretrain-lvd1689m"
   head_type: "multiscale" 
 
 training:
@@ -20,7 +20,7 @@ training:
   warmup_ratio: 0.1
   seed: 42
   use_amp: false               # Essential for high resolution
-  early_stopping_patience: 20
+  early_stopping_patience: 10
   
   # Encoder freezing
   freeze_encoder: true           
@@ -48,12 +48,15 @@ data:
   val_split: 0.1
   test_split: 0.1
   num_workers: 0
+  use_refined_masks: False     # Use masks from refinement_test folder
+  use_robust_augmentations: true
+
 
 logging:
   use_wandb: true
   log_every_n_steps: 1
   save_checkpoint_every_n_epochs: 5
-  output_dir: "outputs/dinov2"
+  output_dir: "outputs/dinov3"
 
 monitoring:
   track_gradients: true
