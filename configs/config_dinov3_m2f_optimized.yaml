@@ -1,0 +1,57 @@
+project_name: "paintable-surface-segmentation"
+experiment_name: "dinov3s_m2f_optimized"
+
+model:
+  name: "dinov3_m2f"
+  num_classes: 12
+  encoder_name: "facebook/dinov3-vits16-pretrain-lvd1689m"
+  hidden_dim: 256
+  num_queries: 50             # Reduced from 100 for speed
+  num_decoder_layers: 3       # Reduced from 6 for speed, compensates for Deep Supervision
+
+training:
+  batch_size: 2
+  gradient_accumulation_steps: 4
+  num_epochs: 100 
+  learning_rate: 0.0001         
+  max_lr: 0.0003                
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "onecycle"
+  warmup_ratio: 0.1
+  seed: 42
+  use_amp: false
+  early_stopping_patience: 15
+  
+  # Encoder freezing
+  freeze_encoder: true           
+  unfreeze_epoch: 10
+  encoder_lr_mult: 0.1
+
+loss:
+  class_weight: 2.0
+  mask_weight: 5.0
+  dice_weight: 5.0
+  ignore_index: 255
+
+data:
+  root_dir: "data"
+  sources: ["base", "extended"]
+  image_size: 770
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  num_workers: 0
+  use_refined_masks: true     # Use higher quality masks
+  use_robust_augmentations: true # Enable robust augs
+
+logging:
+  use_wandb: true
+  log_every_n_steps: 1
+  save_checkpoint_every_n_epochs: 5
+  output_dir: "outputs/dinov3_m2f_opt"
+
+monitoring:
+  track_gradients: true
+  gradient_log_frequency: 10
+  visualize_predictions_every_n_epochs: 5

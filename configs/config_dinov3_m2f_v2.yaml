@@ -1,5 +1,5 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "dinov3_mask2former_aug"
+experiment_name: "dinov3l_m2f_robust_v1"
 
 model:
   name: "dinov3_m2f"
@@ -13,40 +13,37 @@ training:
   batch_size: 2
   gradient_accumulation_steps: 4
   num_epochs: 100 
-  learning_rate: 0.0001         # 1e-4 (higher for transformer decoder)
-  max_lr: 0.0003                # 3e-4
+  learning_rate: 0.0001         # Higher LR for transformer decoder
+  max_lr: 0.0003                
   weight_decay: 0.01
   optimizer: "adamw"
   scheduler: "onecycle"
   warmup_ratio: 0.1
   seed: 42
-  use_amp: false
+  use_amp: false                # DINOv3 features can be sensitive to AMP without careful scaling
   early_stopping_patience: 15
   
-  # Encoder freezing (keep DINOv3 frozen longer)
+  # Encoder freezing strategy
   freeze_encoder: true           
-  unfreeze_epoch: 15
-  encoder_lr_mult: 0.05
+  unfreeze_epoch: 10            # Allow decoder to stabilize first
+  encoder_lr_mult: 0.1
 
-  use_tta: false
-
-# Mask2Former-style loss weights
 loss:
-  class_weight: 2.0      # Class prediction weight
-  mask_weight: 5.0       # Binary mask weight
-  dice_weight: 5.0       # Dice loss weight
+  class_weight: 2.0      # Mask2Former Hungarian matching weights
+  mask_weight: 5.0       
+  dice_weight: 5.0       
   ignore_index: 255
 
 data:
   root_dir: "data"
   sources: ["base", "extended"]
-  image_size: 770             # 14 * 55 = 770 (DINOv2/3 requirement)
+  image_size: 770             # 14 * 55 = 770
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
   num_workers: 0
-  use_refined_masks: true
-  use_robust_augmentations: true  # Start without robust augs
+  use_refined_masks: false
+  use_robust_augmentations: true
 
 logging:
   use_wandb: true

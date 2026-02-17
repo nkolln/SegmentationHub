@@ -112,8 +112,26 @@ class DiceLoss(nn.Module):
         
         # One-hot encode targets
         # targets is (B, H, W) -> (B, C, H, W)
-        true_1_hot = torch.eye(num_classes, device=logits.device)[targets.long()]
+        targets_masked = targets.clone()
+        if self.ignore_index is not None:
+            # Replace ignore_index with 0 (or a valid class) temporarily for one_hot
+            # We will zero out the contribution later
+            mask_valid = (targets != self.ignore_index)
+            targets_masked[~mask_valid] = 0
+        else:
+            mask_valid = torch.ones_like(targets, dtype=torch.bool)
+
+        true_1_hot = torch.eye(num_classes, device=logits.device)[targets_masked.long()]
         true_1_hot = true_1_hot.permute(0, 3, 1, 2).float()
+        
+        if self.ignore_index is not None:
+            # Zero out ignore pixels in one-hot (all classes 0 at that pixel)
+            true_1_hot = true_1_hot * mask_valid.unsqueeze(1).float()
+            # Also zero out probas at those pixels to match?
+            # Dice logic usually just ignores them in intersection/union sums if GT is 0.
+            # However, if probs predict a class there, it adds to Union and denominator.
+            # Standard Dice ignore: don't count those pixels in num/denom.
+            probs = probs * mask_valid.unsqueeze(1).float()
         
         # Flatten
         probs_flat = probs.contiguous().view(probs.shape[0], num_classes, -1)

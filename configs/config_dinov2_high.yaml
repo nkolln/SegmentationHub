@@ -1,11 +1,11 @@
 project_name: "paintable-surface-segmentation"
-experiment_name: "dinov3l_12_mh_robust"
+experiment_name: "dinov3l_12_multiscale_robust_plus"
 
 model:
   name: "dinov3"
   num_classes: 12
   pretrained: true
-  encoder_name: "facebook/dinov3-vitl16-pretrain-lvd1689m"
+  encoder_name: "facebook/dinov3-vitl16-pretrain-lvd1689m" # "facebook/dinov3-vitl16-pretrain-lvd1689m"
   head_type: "multiscale" 
 
 training:
@@ -24,7 +24,7 @@ training:
   
   # Encoder freezing
   freeze_encoder: true           
-  unfreeze_epoch: 10          # Freeze longer to stabilize ASPP head
+  unfreeze_epoch: 15          # Freeze longer to stabilize ASPP head
   encoder_lr_mult: 0.1         
 
   use_tta: false
@@ -42,13 +42,13 @@ loss:
 
 data:
   root_dir: "data"
-  sources: ["base", "extended"]
+  sources: ["base", "extended","self_label"]
   image_size: 770             # 14 * 55 = 770 (DINOv2 requirement)
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
   num_workers: 0
-  use_refined_masks: False     # Use masks from refinement_test folder
+  use_refined_masks: true     # Use masks from refinement_test folder
   use_robust_augmentations: true
 
 

@@ -1,0 +1,62 @@
+project_name: "paintable-surface-segmentation"
+experiment_name: "inference_dinov3l"
+
+model:
+  name: "dinov3"
+  num_classes: 12
+  pretrained: true
+  encoder_name: "facebook/dinov3-vitl16-pretrain-lvd1689m"
+  head_type: "multiscale" 
+
+training:
+  batch_size: 1
+  gradient_accumulation_steps: 1
+  num_epochs: 1 
+  learning_rate: 0.00005
+  max_lr: 0.0002
+  weight_decay: 0.01
+  optimizer: "adamw"
+  scheduler: "onecycle"
+  warmup_ratio: 0.1
+  seed: 42
+  use_amp: false
+  early_stopping_patience: 10
+  
+  freeze_encoder: true           
+  unfreeze_epoch: 15
+  encoder_lr_mult: 0.1         
+
+  use_tta: false
+
+loss:
+  cross_entropy: 1.0
+  dice: 1.0
+  focal:
+    weight: 0.0
+    alpha: 0.25
+    gamma: 2.0
+  boundary: 0.1
+  label_smoothing: 0.1
+  ignore_index: 255
+
+data:
+  root_dir: "data"
+  sources: ["base", "extended"]
+  image_size: 770
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  num_workers: 0
+  use_refined_masks: true
+  use_robust_augmentations: false
+
+logging:
+  use_wandb: false
+  log_every_n_steps: 1
+  save_checkpoint_every_n_epochs: 5
+  output_dir: "outputs/inference"
+
+monitoring:
+  track_gradients: false
+  gradient_log_frequency: 10
+  visualize_predictions_every_n_epochs: 5

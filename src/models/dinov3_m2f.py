@@ -398,48 +398,43 @@ class DINOv3Mask2Former(nn.Module):
             gt_class_ids = torch.stack(gt_class_ids)  # (K,)
             K = len(gt_class_ids)
             
-            # ===== HUNGARIAN MATCHING =====
+            # ===== HUNGARIAN MATCHING (Optimal) =====
             # Build cost matrix: (N queries) x (K GT segments)
             pred_masks_sigmoid = pred_masks.sigmoid()  # (N, H, W)
             pred_probs = F.softmax(pred_classes, dim=-1)  # (N, num_classes+1)
             
             # Cost 1: Classification cost
-            # cost_class[n, k] = -prob(pred_n is gt_class_k)
-            cost_class = -pred_probs[:, gt_class_ids].T  # (K, N) -> transpose to (N, K)
-            cost_class = cost_class.T  # Now (N, K)
+            cost_class = -pred_probs[:, gt_class_ids].T  # (K, N) -> (N, K)
+            cost_class = cost_class.T
             
             # Cost 2: Mask BCE cost
-            pred_flat = pred_masks.flatten(1)  # (N, HW) - use logits
+            pred_flat = pred_masks.flatten(1)  # (N, HW)
             gt_flat = gt_binary_masks.flatten(1)  # (K, HW)
             
-            # BCE cost: compute for each (query, gt) pair
-            # Expand to (N, K, HW)
-            pred_expanded = pred_flat.unsqueeze(1).expand(-1, K, -1)  # (N, K, HW)
-            gt_expanded = gt_flat.unsqueeze(0).expand(N, -1, -1)  # (N, K, HW)
+            pred_expanded = pred_flat.unsqueeze(1).expand(-1, K, -1)
+            gt_expanded = gt_flat.unsqueeze(0).expand(N, -1, -1)
             
             cost_mask = F.binary_cross_entropy_with_logits(
                 pred_expanded, gt_expanded, reduction='none'
-            ).mean(dim=-1)  # (N, K)
+            ).mean(dim=-1)
             
             # Cost 3: Dice cost
-            pred_sigmoid_flat = pred_masks_sigmoid.flatten(1)  # (N, HW)
-            intersection = torch.mm(pred_sigmoid_flat, gt_flat.T)  # (N, K)
-            pred_area = pred_sigmoid_flat.sum(dim=1, keepdim=True)  # (N, 1)
-            gt_area = gt_flat.sum(dim=1, keepdim=True).T  # (1, K)
+            pred_sigmoid_flat = pred_masks_sigmoid.flatten(1)
+            intersection = torch.mm(pred_sigmoid_flat, gt_flat.T)
+            pred_area = pred_sigmoid_flat.sum(dim=1, keepdim=True)
+            gt_area = gt_flat.sum(dim=1, keepdim=True).T
             union = pred_area + gt_area
             dice = 2 * intersection / (union + 1e-6)
-            cost_dice = 1 - dice  # (N, K)
+            cost_dice = 1 - dice
             
             # Total cost
             cost = (
                 self.class_weight * cost_class +
                 self.mask_weight * cost_mask +
                 self.dice_weight * cost_dice
-            )  # (N, K)
+            )
             
-            # Hungarian algorithm (find optimal assignment)
-            # linear_sum_assignment expects (rows=workers, cols=jobs)
-            # We want to assign N queries to K GT segments
+            # Hungarian algorithm
             cost_np = cost.detach().cpu().numpy()
             query_idx, gt_idx = linear_sum_assignment(cost_np)
             
@@ -494,28 +489,26 @@ class DINOv3Mask2Former(nn.Module):
                                all_mask_logits: List[torch.Tensor],
                                labels: torch.Tensor) -> torch.Tensor:
         """
-        Compute loss with auxiliary losses from all decoder layers.
-        
-        Args:
-            all_class_logits: List of (B, N, num_classes+1) from each layer
-            all_mask_logits: List of (B, N, H, W) from each layer
-            labels: (B, H, W)
+        Compute loss with auxiliary losses from ALL decoder layers (Deep Supervision).
+        This is critical for Mask2Former convergence.
         """
         num_layers = len(all_class_logits)
         total_loss = 0.0
         
-        # Final layer gets full weight, intermediate layers get 0.5 weight
-        for i, (class_logits, mask_logits) in enumerate(zip(all_class_logits, all_mask_logits)):
-            layer_weight = 1.0 if i == num_layers - 1 else 0.5
-            layer_loss = self._compute_loss_single(class_logits, mask_logits, labels)
-            total_loss += layer_weight * layer_loss
-        
-        return total_loss
+        # Deep Supervision: Compute loss for every layer
+        for i in range(num_layers):
+            layer_class_logits = all_class_logits[i]
+            layer_mask_logits = all_mask_logits[i]
+            
+            layer_loss = self._compute_loss_single(layer_class_logits, layer_mask_logits, labels)
+            total_loss += layer_loss
+            
+        return total_loss / num_layers
     
     def post_process_semantic_segmentation(self, outputs: dict, target_sizes: List[Tuple[int, int]]) -> List[torch.Tensor]:
         """
-        Convert model outputs to semantic segmentation maps.
-        Implemented like official Mask2Former (no einsum).
+        Convert model outputs to semantic segmentation maps using standard inference.
+        Formula: argmax_c sum_q P(c|q) * P(q|x,y)
         
         Args:
             outputs: Dict with 'class_logits' and 'mask_logits'
@@ -533,44 +526,34 @@ class DINOv3Mask2Former(nn.Module):
         for b in range(B):
             h, w = target_sizes[b]
             
-            # Resize masks to target size
+            # 1. Prepare Class Probabilities
+            # (N, num_classes+1) -> softmax -> remove no-object class -> (N, num_classes)
+            class_probs = F.softmax(class_logits[b], dim=-1)[:, :-1]
+            
+            # 2. Prepare Mask Probabilities
+            # (N, H, W) -> upsample -> sigmoid -> (N, h, w)
             masks = F.interpolate(
-                mask_logits[b].unsqueeze(0),  # (1, N, H, W)
+                mask_logits[b].unsqueeze(0),
                 size=(h, w),
                 mode='bilinear',
                 align_corners=False
-            ).squeeze(0)  # (N, h, w)
+            ).squeeze(0)
+            mask_probs = masks.sigmoid()
             
-            # Get class predictions (exclude no-object class)
-            # class_logits: (N, num_classes+1)
-            # We want argmax over classes (0 to num_classes-1)
-            class_probs = F.softmax(class_logits[b], dim=-1)  # (N, num_classes+1)
+            # 3. Compute Semantic Map via Matrix Multiplication
+            # We want Pixel Class Probabilities: (num_classes, h, w)
+            # P(c|x,y) = sum_q P(c|q) * P(q|x,y)
+            # Flatten spatial: (N, hw)
+            mask_probs_flat = mask_probs.flatten(1)
             
-            # Get predicted class for each query (excluding background)
-            pred_classes = class_probs[:, :-1].argmax(dim=-1)  # (N,)
-            pred_confidences = class_probs[:, :-1].max(dim=-1).values  # (N,)
-            mask_probs = masks.sigmoid()  # (N, h, w)
+            # (num_classes, N) @ (N, hw) -> (num_classes, hw)
+            semantic_probs_flat = torch.mm(class_probs.T, mask_probs_flat)
             
-            # Initialize semantic map
-            semantic_map = torch.zeros((h, w), dtype=torch.long, device=masks.device)
+            # Reshape back to (num_classes, h, w)
+            semantic_probs = semantic_probs_flat.view(self.num_classes, h, w)
             
-            # For each query, paint its mask with its predicted class
-            # Confidence threshold to filter out low-confidence predictions
-            conf_threshold = 0.5
-            
-            for query_idx in range(masks.shape[0]):
-                # Skip if confidence too low
-                if pred_confidences[query_idx] < conf_threshold:
-                    continue
-                
-                # Get mask for this query
-                query_mask = mask_probs[query_idx]  # (h, w)
-                
-                # Get class prediction
-                pred_class = pred_classes[query_idx]
-                
-                # Paint pixels where mask > 0.5 with this class
-                semantic_map[query_mask > 0.5] = pred_class
+            # 4. Argmax to get final class
+            semantic_map = semantic_probs.argmax(dim=0)  # (h, w)
             
             results.append(semantic_map)
         
